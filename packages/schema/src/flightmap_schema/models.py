@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+from .research import LocalAccessPolicy
+
 
 class LicenseStatus(StrEnum):
     REVIEW_REQUIRED = "review-required"
@@ -49,8 +51,8 @@ class DiscoveryRule(BaseModel):
 class SourceProduct(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    name: str
+    id: str = Field(pattern="^[a-z0-9-]+$")
+    name: str = Field(min_length=1)
     landing_page: HttpUrl
     kind: ProductKind
     categories: list[str]
@@ -60,18 +62,33 @@ class SourceProduct(BaseModel):
     redistribution: str
     notes: str | None = None
     discovery: DiscoveryRule = Field(default_factory=DiscoveryRule)
+    local_access: LocalAccessPolicy = Field(default_factory=LocalAccessPolicy)
+
+    @model_validator(mode="after")
+    def valid_product(self) -> SourceProduct:
+        if self.landing_page.scheme != "https":
+            raise ValueError("Source landing pages must use HTTPS")
+        if not self.id or not self.name or not self.categories:
+            raise ValueError("Product id, name and categories cannot be empty")
+        return self
 
 
 class Source(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    name: str
-    authority: str
-    country: str
+    id: str = Field(pattern="^[a-z0-9-]+$")
+    name: str = Field(min_length=1)
+    authority: str = Field(min_length=1)
+    country: str = Field(pattern="^[A-Z]{2}$")
     trust_level: str = Field(pattern="^[A-D]$")
     official: bool
-    products: list[SourceProduct]
+    products: list[SourceProduct] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_products(self) -> Source:
+        if len({p.id for p in self.products}) != len(self.products):
+            raise ValueError("Duplicate product id")
+        return self
 
 
 class RawAsset(BaseModel):
@@ -85,6 +102,13 @@ class RawAsset(BaseModel):
     content_type: str
     size_bytes: int = Field(gt=0)
     storage_uri: str
+    final_url: HttpUrl | None = None
+
+    @model_validator(mode="after")
+    def aware_retrieval(self) -> RawAsset:
+        if self.retrieved_at.tzinfo is None:
+            raise ValueError("retrieved_at must include timezone")
+        return self
 
 
 class ValidationIssue(BaseModel):
@@ -112,13 +136,27 @@ class DatasetRelease(BaseModel):
     license_status: LicenseStatus
     quality_status: QualityStatus
     issues: list[ValidationIssue] = Field(default_factory=list)
+    input_sha256: list[str] = Field(default_factory=list)
+    validity_evidence: list[str] = Field(default_factory=list)
+    local_access: LocalAccessPolicy = Field(default_factory=LocalAccessPolicy)
+    capabilities: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_interval(self) -> DatasetRelease:
+        if self.retrieved_at.tzinfo is None:
+            raise ValueError("retrieved_at must include timezone")
         if self.valid_from.tzinfo is None or self.valid_to.tzinfo is None:
             raise ValueError("有效期必须包含时区")
         if self.valid_from >= self.valid_to:
             raise ValueError("valid_from 必须早于 valid_to")
+        if not self.input_sha256:
+            self.input_sha256 = [self.sha256]
+        if self.sha256 not in self.input_sha256:
+            raise ValueError("Primary asset must belong to release inputs")
+        import re
+
+        if any(not re.fullmatch(r"[a-f0-9]{64}", value) for value in self.input_sha256):
+            raise ValueError("Invalid input SHA-256")
         return self
 
     def is_current(self, at: datetime | None = None) -> bool:
@@ -126,8 +164,7 @@ class DatasetRelease(BaseModel):
         if at.tzinfo is None:
             raise ValueError("查询时间必须包含时区")
         return (
-            self.quality_status is QualityStatus.VERIFIED
-            and self.valid_from <= at < self.valid_to
+            self.quality_status is QualityStatus.VERIFIED and self.valid_from <= at < self.valid_to
         )
 
 

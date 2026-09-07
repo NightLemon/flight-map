@@ -1,55 +1,260 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://flight-map.local/schemas/source-registry.json",
-  "title": "Flight Map source registry",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["version", "sources"],
-  "properties": {
-    "version": { "type": "integer", "const": 1 },
-    "sources": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "name", "authority", "country", "trust_level", "official", "products"],
-        "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
-          "name": { "type": "string", "minLength": 1 },
-          "authority": { "type": "string", "minLength": 1 },
-          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
-          "trust_level": { "enum": ["A", "B", "C", "D"] },
-          "official": { "type": "boolean" },
-          "products": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id", "name", "landing_page", "kind", "categories", "license_status", "redistribution"],
-              "properties": {
-                "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
-                "name": { "type": "string" },
-                "landing_page": { "type": "string", "format": "uri", "pattern": "^https://" },
-                "kind": { "enum": ["structured-data", "chart", "safety-notice", "catalog"] },
-                "categories": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-                "update_cycle_days": { "type": ["integer", "null"], "minimum": 1 },
-                "formats": { "type": "array", "items": { "type": "string" } },
-                "license_status": { "enum": ["review-required", "link-only", "public-domain", "permissive", "agreement-approved"] },
-                "redistribution": { "type": "string", "minLength": 1 },
-                "notes": { "type": ["string", "null"] },
-                "discovery": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "link_contains": { "type": "array", "items": { "type": "string" } },
-                    "require_zip": { "type": "boolean" }
-                  }
-                }
-              }
-            }
-          }
+  "$defs": {
+    "DiscoveryRule": {
+      "additionalProperties": false,
+      "properties": {
+        "link_contains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Link Contains",
+          "type": "array"
+        },
+        "require_zip": {
+          "default": false,
+          "title": "Require Zip",
+          "type": "boolean"
         }
-      }
+      },
+      "title": "DiscoveryRule",
+      "type": "object"
+    },
+    "LicenseStatus": {
+      "enum": [
+        "review-required",
+        "link-only",
+        "public-domain",
+        "permissive",
+        "agreement-approved"
+      ],
+      "title": "LicenseStatus",
+      "type": "string"
+    },
+    "LocalAccessPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "acquisition": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "allowed",
+            "needs-user-action",
+            "prohibited"
+          ],
+          "title": "Acquisition",
+          "type": "string"
+        },
+        "processing": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "allowed",
+            "needs-user-action",
+            "prohibited"
+          ],
+          "title": "Processing",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed At"
+        },
+        "agreement_required": {
+          "default": false,
+          "title": "Agreement Required",
+          "type": "boolean"
+        }
+      },
+      "title": "LocalAccessPolicy",
+      "type": "object"
+    },
+    "ProductKind": {
+      "enum": [
+        "structured-data",
+        "chart",
+        "safety-notice",
+        "catalog"
+      ],
+      "title": "ProductKind",
+      "type": "string"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "authority": {
+          "minLength": 1,
+          "title": "Authority",
+          "type": "string"
+        },
+        "country": {
+          "pattern": "^[A-Z]{2}$",
+          "title": "Country",
+          "type": "string"
+        },
+        "trust_level": {
+          "pattern": "^[A-D]$",
+          "title": "Trust Level",
+          "type": "string"
+        },
+        "official": {
+          "title": "Official",
+          "type": "boolean"
+        },
+        "products": {
+          "items": {
+            "$ref": "#/$defs/SourceProduct"
+          },
+          "minItems": 1,
+          "title": "Products",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "authority",
+        "country",
+        "trust_level",
+        "official",
+        "products"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "SourceProduct": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "landing_page": {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "title": "Landing Page",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProductKind"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "update_cycle_days": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Update Cycle Days"
+        },
+        "formats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Formats",
+          "type": "array"
+        },
+        "license_status": {
+          "$ref": "#/$defs/LicenseStatus"
+        },
+        "redistribution": {
+          "title": "Redistribution",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "discovery": {
+          "$ref": "#/$defs/DiscoveryRule"
+        },
+        "local_access": {
+          "$ref": "#/$defs/LocalAccessPolicy"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "landing_page",
+        "kind",
+        "categories",
+        "license_status",
+        "redistribution"
+      ],
+      "title": "SourceProduct",
+      "type": "object"
     }
-  }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/Source"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "sources"
+  ],
+  "title": "SourceRegistry",
+  "type": "object"
 }

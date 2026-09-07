@@ -12,6 +12,14 @@ from .models import (
     ValidationIssue,
 )
 from .registry import load_sources
+from .research import (
+    ImportManifest,
+    LocalAccessPolicy,
+    ParseResult,
+    Provenance,
+    ResearchRecord,
+    ValidationReport,
+)
 
 __all__ = [
     "AiracPeriod",
@@ -25,4 +33,10 @@ __all__ = [
     "ValidationIssue",
     "airac_period_at",
     "load_sources",
+    "ImportManifest",
+    "LocalAccessPolicy",
+    "ParseResult",
+    "Provenance",
+    "ResearchRecord",
+    "ValidationReport",
 ]
