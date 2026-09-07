@@ -20,7 +20,6 @@ CATEGORIES = {
     "ODP": "obstacle-departures",
     "HOT": "hot-spots",
     "LAH": "lahso",
-    "DAU": "departure-authorizations",
 }
 
 
@@ -43,6 +42,8 @@ def dtpp_validity(path: Path) -> dict:
     for attr in ("from_edate", "to_edate"):
         value = " ".join(root.get(attr, "").split())
         values.append(datetime.strptime(value, "%H%MZ %m/%d/%y").replace(tzinfo=UTC))
+    if cycle[:2] != values[0].strftime("%y") or not 1 <= int(cycle[2:]) <= 14:
+        raise ValueError("d-TPP cycle conflicts with the effective year")
     if values[0] >= values[1]:
         raise ValueError("Empty or reversed d-TPP validity")
     return {
@@ -64,6 +65,37 @@ def parse_dtpp(path: Path, asset_sha256: str) -> ParseResult:
     total = errors = unsupported = 0
     for airport in root.iter("airport_name"):
         apt_ident = airport.get("apt_ident", "").strip()
+        total += 1
+        airport_id = f"faa-aeronav:dtpp:airport:{apt_ident}"
+        if not apt_ident or not airport.get("ID", "").strip() or airport_id in seen:
+            errors += 1
+            issues.append(
+                {
+                    "code": "dtpp-airport-identity",
+                    "severity": "error",
+                    "message": "Missing or duplicate catalog airport identity",
+                    "record_key": airport_id,
+                }
+            )
+        else:
+            seen.add(airport_id)
+            records.append(
+                ResearchRecord(
+                    id=airport_id,
+                    kind="airport",
+                    name=airport.get("ID", ""),
+                    identifier=apt_ident,
+                    airport_ident=apt_ident,
+                    properties={
+                        "catalog_only": True,
+                        "icao_id": airport.get("icao_ident", "").strip() or None,
+                        "raw_fields": dict(airport.attrib),
+                    },
+                    provenance=Provenance(
+                        asset_sha256=asset_sha256, locator=f"airport_name[@apt_ident='{apt_ident}']"
+                    ),
+                )
+            )
         for position, element in enumerate(airport.findall("record"), start=1):
             total += 1
             raw = {child.tag: (child.text or "").strip() for child in element}
@@ -76,6 +108,10 @@ def parse_dtpp(path: Path, asset_sha256: str) -> ParseResult:
                 )
                 if not apt_ident or not name or not code:
                     raise ValueError("Missing chart or airport identity")
+                if not re.fullmatch(r"\d{5}", raw.get("chartseq", "")):
+                    raise ValueError("Invalid chart sequence")
+                if raw.get("useraction", "") not in {"", "A", "C", "D"}:
+                    raise ValueError("Unknown chart change action")
                 deleted = raw.get("useraction") == "D"
                 if not re.fullmatch(r"[A-Za-z0-9_-]+\.PDF", pdf, re.I):
                     raise ValueError("Unsafe or invalid official PDF filename")
@@ -143,6 +179,6 @@ def parse_dtpp(path: Path, asset_sha256: str) -> ParseResult:
             unsupported_count=unsupported,
             error_count=errors,
             issues=issues,
-            capabilities=["charts"],
+            capabilities=["charts", "airport-catalog"],
         ),
     )

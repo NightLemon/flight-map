@@ -40,7 +40,12 @@ def test_dtpp_uses_explicit_utc_validity_and_retains_chart_categories():
     assert validity["valid_from"] == datetime(2026, 9, 3, 9, 1, tzinfo=UTC)
     assert validity["valid_to"] == datetime(2026, 10, 1, 9, 1, tzinfo=UTC)
     result = parse_dtpp(path, SHA)
-    assert result.report.success_count == 4
+    assert result.report.success_count == 5
+    catalog = result.records[0]
+    assert catalog.kind == "airport" and catalog.geometry is None
+    assert catalog.properties["catalog_only"]
+    assert "airport-catalog" in result.report.capabilities
+    result.records = result.records[1:]
     assert [r.properties["category"] for r in result.records] == [
         "sid",
         "star",
@@ -62,6 +67,6 @@ def test_dtpp_unknown_code_preserves_record_and_unsafe_pdf_blocks(tmp_path):
     path.write_text(text.replace("<chart_code>DP</chart_code>", "<chart_code>NEW</chart_code>"))
     result = parse_dtpp(path, SHA)
     assert result.report.unsupported_count == 1
-    assert len(result.records) == 4
+    assert len(result.records) == 5
     path.write_text(text.replace("TESTDP.PDF", "../other.pdf"))
     assert parse_dtpp(path, SHA).report.error_count == 1
