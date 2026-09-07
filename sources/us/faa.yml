@@ -1,0 +1,73 @@
+version: 1
+sources:
+  - id: faa-aeronav
+    name: FAA Aeronautical Information Services
+    authority: Federal Aviation Administration
+    country: US
+    trust_level: A
+    official: true
+    products:
+      - id: cifp
+        name: Coded Instrument Flight Procedures
+        landing_page: https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/cifp/
+        kind: structured-data
+        categories: [airports, runways, navaids, waypoints, airways, sid, star, approaches, airspace]
+        update_cycle_days: 28
+        formats: [ARINC-424-v18, ZIP]
+        license_status: review-required
+        redistribution: 产品级再分发条款尚未完成书面确认；当前只发现和校验，不公开镜像。
+        notes: 下载前需接受 FAA CIFP 错误通知协议；不得把解析成功等同于运行级适航数据。
+        discovery:
+          link_contains: [cifp, zip]
+          require_zip: true
+      - id: nasr
+        name: 28 Day NASR Subscription
+        landing_page: https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/NASR_Subscription/
+        kind: structured-data
+        categories: [airports, facilities, navaids]
+        update_cycle_days: 28
+        formats: [CSV, TXT, ZIP]
+        license_status: review-required
+        redistribution: 产品级再分发条款尚未确认；当前只保留来源元数据。
+        notes: 仅作为设施补充和交叉验证，不静默覆盖 CIFP。
+        discovery:
+          link_contains: [28DaySubscription, Subscription, zip]
+          require_zip: true
+      - id: dtpp
+        name: Digital Terminal Procedures Publication
+        landing_page: https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/
+        kind: chart
+        categories: [airport-diagrams, sid, star, approaches, minima]
+        update_cycle_days: 28
+        formats: [PDF, XML, ZIP]
+        license_status: review-required
+        redistribution: 未确认前仅展示元数据与 FAA 官方链接，不公开镜像。
+        notes: 用作程序矢量结果的视觉核对；PDF 无官方地理配准时不叠加到地图。
+        discovery:
+          link_contains: [DDTPP, dtpp, zip]
+          require_zip: true
+      - id: ifr-charts
+        name: IFR Enroute Aeronautical Charts
+        landing_page: https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/ifr/
+        kind: chart
+        categories: [enroute-low, enroute-high, area-charts]
+        update_cycle_days: 56
+        formats: [GeoTIFF, PDF, ZIP]
+        license_status: review-required
+        redistribution: 未确认前不公开镜像；允许时再生成保留元数据的 COG。
+        notes: 当前版与预览版必须按精确生效时间隔离。
+        discovery:
+          link_contains: [geotiff, tif, zip, pdf]
+          require_zip: false
+      - id: safety-alerts
+        name: Safety Alerts and Charting Notices
+        landing_page: https://www.faa.gov/air_traffic/flight_info/aeronav/safety_alerts/
+        kind: safety-notice
+        categories: [corrections, charting-notices]
+        formats: [HTML, PDF]
+        license_status: link-only
+        redistribution: 仅链接到 FAA 官方公告；项目不复制成运行级告警服务。
+        notes: 严重更正可触发紧急重建，但不能代替 NOTAM 或飞行前简报。
+        discovery:
+          link_contains: [alert, notice, pdf]
+          require_zip: false

@@ -1,0 +1,29 @@
+name: FAA discovery dry-run
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync --all-packages --locked
+      - name: Discover official links without downloading or publishing
+        run: uv run flightmap-ingest discover-faa --dry-run --allow-network-failure > faa-discovery.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: faa-discovery
+          path: faa-discovery.json
+          retention-days: 14

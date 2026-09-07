@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flight-map.local/schemas/source-registry.json",
+  "title": "Flight Map source registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sources"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "authority", "country", "trust_level", "official", "products"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "name": { "type": "string", "minLength": 1 },
+          "authority": { "type": "string", "minLength": 1 },
+          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "trust_level": { "enum": ["A", "B", "C", "D"] },
+          "official": { "type": "boolean" },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "landing_page", "kind", "categories", "license_status", "redistribution"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+                "name": { "type": "string" },
+                "landing_page": { "type": "string", "format": "uri", "pattern": "^https://" },
+                "kind": { "enum": ["structured-data", "chart", "safety-notice", "catalog"] },
+                "categories": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "update_cycle_days": { "type": ["integer", "null"], "minimum": 1 },
+                "formats": { "type": "array", "items": { "type": "string" } },
+                "license_status": { "enum": ["review-required", "link-only", "public-domain", "permissive", "agreement-approved"] },
+                "redistribution": { "type": "string", "minLength": 1 },
+                "notes": { "type": ["string", "null"] },
+                "discovery": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "link_contains": { "type": "array", "items": { "type": "string" } },
+                    "require_zip": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
