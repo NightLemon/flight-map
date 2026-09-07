@@ -199,6 +199,16 @@ def create_app(
                 attempt = next(
                     (a for a in state["attempts"] if a["product_id"] == product.id), None
                 )
+                last_success = next(
+                    (
+                        r
+                        for r in state["releases"]
+                        if r["source_id"] == source.id
+                        and r["product_id"] == product.id
+                        and r["state"] in {"current", "staged", "history"}
+                    ),
+                    None,
+                )
                 row = {
                     "region": source.country,
                     "source_id": source.id,
@@ -211,6 +221,20 @@ def create_app(
                     "note": candidate["reason"] if candidate else "尚无通过验证的发布集",
                     "latest_attempt": attempt,
                     "official_url": str(product.landing_page),
+                    "notices_url": next(
+                        (
+                            str(notice.landing_page)
+                            for notice in source.products
+                            if notice.kind == "safety-notice"
+                        ),
+                        None,
+                    ),
+                    "last_successful_release": {
+                        key: last_success[key]
+                        for key in ["id", "airac", "valid_from", "valid_to", "state"]
+                    }
+                    if last_success
+                    else None,
                 }
                 if candidate:
                     row.update(
