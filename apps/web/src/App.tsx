@@ -283,6 +283,11 @@ function App() {
       <section><div className="section-heading"><span>产品覆盖</span></div>
         {coverage.map((row) => <div className="coverage-item" key={row.product_id}><b>{PRODUCT_NAMES[row.product_id] ?? row.name}</b><span>{COVERAGE_NAMES[row.status] ?? row.status}</span>
           {row.note && <><p>{coverageSummary(row.note)}</p>{coverageSummary(row.note) !== row.note && <details><summary>查看获取记录</summary><p>{row.note}</p></details>}</>}
+          {row.last_successful_release && <>
+            <p>最近验证通过 {row.last_successful_release.airac} · {row.last_successful_release.id}</p>
+            <p className="version-caption">有效期 {utc(row.last_successful_release.valid_from)} — {utc(row.last_successful_release.valid_to)}</p>
+          </>}
+          {row.notices_url && <p><a href={row.notices_url} target="_blank" rel="noopener noreferrer">官方更正公告 ↗</a></p>}
         </div>)}
         {!coverage.length && <p className="muted-copy">等待 API 提供覆盖状态。</p>}
       </section>

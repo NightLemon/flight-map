@@ -21,6 +21,8 @@ export type Coverage = {
   product_id: string; name: string; status: string; note?: string
   release_id?: string; valid_from?: string; valid_to?: string
   counts?: Record<string, number>; categories: string[]
+  last_successful_release?: { id: string; airac: string; valid_from: string; valid_to: string; state: string } | null
+  notices_url?: string | null
 }
 export type Source = {
   id: string; name: string; products: {

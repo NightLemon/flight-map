@@ -53,6 +53,27 @@ async function chooseAirport() {
 }
 
 describe('research workspace', () => {
+  it('retains the last validated cycle and official notices when acquisition fails without making it current', async () => {
+    snapshot = status({ current_releases: {}, releases: [], publication_state: 'empty', verified_release_available: false })
+    override = (url) => url.pathname.endsWith('/coverage') ? response([
+      { product_id: 'nasr', name: 'NASR', status: 'failed', categories: ['airports'], note: 'Latest acquisition failed',
+        last_successful_release: { id: 'successful-nasr-2608', airac: '2608', valid_from: '2026-08-06T09:01:00Z', valid_to: '2026-09-03T09:01:00Z', state: 'history' },
+        notices_url: 'https://www.faa.gov/air_traffic/flight_info/aeronav/safety_alerts/' },
+      { product_id: 'cifp', name: 'CIFP', status: 'not-imported', categories: [], last_successful_release: null, notices_url: null },
+    ]) : undefined
+    render(<App />)
+    await screen.findByText('获取失败')
+    expect(screen.getByText('最近验证通过 2608 · successful-nasr-2608')).toBeVisible()
+    expect(screen.getByText('有效期 2026-08-06 09:01 UTC — 2026-09-03 09:01 UTC')).toBeVisible()
+    const notices = screen.getByRole('link', { name: /官方更正公告/ })
+    expect(notices).toHaveAttribute('href', 'https://www.faa.gov/air_traffic/flight_info/aeronav/safety_alerts/')
+    expect(notices).toHaveAttribute('target', '_blank')
+    expect(notices).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByText('尚无已验证的当前资料')).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: /机场/ })).toBeDisabled()
+    expect(screen.getByTestId('map-features')).toHaveTextContent('[]')
+  })
+
   it('uses the API empty state and never invents sample results', async () => {
     snapshot = status({ current_releases: {}, releases: [], publication_state: 'empty', verified_release_available: false })
     render(<App />)
