@@ -14,6 +14,10 @@ does not accept the FAA customer agreement or obtain the agreement-gated ZIP.
   2026-10-01 09:01 UTC**. These are product-specific boundaries, not AIRAC calendar
   defaults. The URL is mutable; the downloaded evidence belongs with the release's
   immutable raw inputs. Local research cache: `.cache/cifp-evidence/CIFP-Readme.pdf`.
+  The downloaded PDF's SHA-256 is
+  `1d4d79b51d8ed351d018491bd37ac1cf5283851037e6b52b485de87f91be29a1`.
+  Its extracted text was successfully read by `parse_cifp_validity`; CI uses the
+  frozen excerpt rather than fetching this mutable URL.
 - Readme pages 2-4 specify record families, airport identifier fallback, FAA code
   in the ATA/IATA field, waypoint scope, and field exceptions. PA's airport
   identifier is not always an ICAO code; missing ICAO identifiers must not be
