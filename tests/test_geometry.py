@@ -121,3 +121,19 @@ def test_procedures_with_identical_branch_names_never_connect():
 def test_coincident_points_remain_valid_geojson():
     result = nominal_geodesic((1, 2), (1, 2))
     assert result == {"type": "LineString", "coordinates": [[1, 2], [1, 2]]}
+
+
+@pytest.mark.parametrize("provenance_change", [{"asset_sha256": "b" * 64}, {"member": "other"}])
+def test_separate_source_members_cannot_be_joined(provenance_change):
+    second = leg(1, "TF", 1)
+    second.provenance = second.provenance.model_copy(update=provenance_change)
+    result = geometry_for_legs([leg(0, "IF"), second])
+    assert result["gaps"][0]["reason"] == "source-boundary"
+
+
+@pytest.mark.parametrize("source_line", [None, 1])
+def test_missing_or_reversed_source_order_cannot_authorize_a_tf(source_line):
+    second = leg(1, "TF", 1)
+    second.provenance = second.provenance.model_copy(update={"line": source_line})
+    result = geometry_for_legs([leg(0, "IF"), second])
+    assert result["gaps"][0]["reason"] == "source-order-unverified"

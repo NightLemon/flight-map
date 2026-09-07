@@ -97,6 +97,8 @@ of the unverified CIFP reader. IF shows a point. TF only follows a successfully
 rendered adjacent IF/TF in the same named branch and procedure. Unsupported or
 unresolved legs break the chain until another IF. Branch filtering does not
 create adjacency. Original order is never silently sorted.
+TF also requires increasing source line positions in the same original asset and
+ZIP member; missing source order or a switch of original file creates a gap.
 
 GeographicLib WGS84 geodesics are sampled at no more than 1 nautical mile (1852
 meters). Segments crossing longitude 180 are split at the exact geodesic crossing,

@@ -123,11 +123,22 @@ def geometry_for_legs(
         ):
             reason = "branch-boundary"
         elif (
+            leg.provenance.asset_sha256 != previous.provenance.asset_sha256
+            or leg.provenance.member != previous.provenance.member
+        ):
+            reason = "source-boundary"
+        elif (
             leg.sequence is not None
             and previous.sequence is not None
             and leg.sequence <= previous.sequence
         ):
             reason = "invalid-original-order"
+        elif (
+            leg.provenance.line is None
+            or previous.provenance.line is None
+            or leg.provenance.line <= previous.provenance.line
+        ):
+            reason = "source-order-unverified"
         elif not previous_supported or previous_point is None:
             reason = "previous-leg-not-supported"
         else:
