@@ -430,8 +430,11 @@ class Repository:
                 params.append(value)
         if q is not None:
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            clauses.append("(identifier LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')")
-            params.extend([f"%{escaped}%", f"%{escaped}%"])
+            clauses.append(
+                "(identifier LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' "
+                "OR json_extract(metadata, '$.properties.icao_id') LIKE ? ESCAPE '\\')"
+            )
+            params.extend([f"%{escaped}%"] * 3)
         sql = "SELECT metadata FROM records WHERE " + " AND ".join(clauses)
         sql += " ORDER BY sequence,id LIMIT ? OFFSET ?"
         with self._connect() as connection:

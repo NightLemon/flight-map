@@ -241,7 +241,12 @@ def create_app(
             if r.kind not in {"leg", "chart"}
         ]
         matches.sort(
-            key=lambda r: (r.identifier.upper() != q.strip().upper(), r.kind, r.identifier)
+            key=lambda r: (
+                q.strip().upper()
+                not in {r.identifier.upper(), str(r.properties.get("icao_id") or "").upper()},
+                r.kind,
+                r.identifier,
+            )
         )
         return envelope(
             release,
