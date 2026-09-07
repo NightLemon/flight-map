@@ -222,8 +222,14 @@ def create_app(
                             },
                         }
                     )
+                    if candidate["state"] == "history" and (
+                        datetime.fromisoformat(candidate["valid_to"]) <= state["current_time"]
+                    ):
+                        row["status"] = "expired"
                 if attempt and attempt["status"] in {"failed", "needs-user-action", "blocked"}:
                     row["note"] = attempt["message"]
+                    if candidate is None:
+                        row["status"] = "failed" if attempt["status"] == "failed" else "blocked"
                 rows.append(row)
         return rows
 
