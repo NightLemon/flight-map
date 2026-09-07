@@ -5,6 +5,8 @@ description = "Flight Map 只读 API"
 requires-python = ">=3.12"
 dependencies = [
   "flightmap-schema",
+  "flightmap-storage",
+  "flightmap-ingestion",
   "fastapi>=0.116,<1",
   "uvicorn[standard]>=0.35,<1",
 ]
@@ -21,3 +23,5 @@ packages = ["src/flightmap_api"]
 
 [tool.uv.sources]
 flightmap-schema = { workspace = true }
+flightmap-storage = { workspace = true }
+flightmap-ingestion = { workspace = true }

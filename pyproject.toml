@@ -7,6 +7,7 @@ dependencies = [
   "flightmap-api",
   "flightmap-ingestion",
   "flightmap-schema",
+  "flightmap-storage",
 ]
 
 [dependency-groups]
@@ -20,9 +21,10 @@ dev = [
 flightmap-api = { workspace = true }
 flightmap-ingestion = { workspace = true }
 flightmap-schema = { workspace = true }
+flightmap-storage = { workspace = true }
 
 [tool.uv.workspace]
-members = ["packages/schema", "services/api", "services/ingestion"]
+members = ["packages/schema", "packages/storage", "services/api", "services/ingestion"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
