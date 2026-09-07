@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "npm run dev --workspace=web",
     "build": "npm run build --workspace=web",
-    "lint": "npm run lint --workspace=web"
+    "lint": "npm run lint --workspace=web",
+    "test:web": "npm run test --workspace=web",
+    "test:e2e": "npm run test:e2e --workspace=web"
   },
   "engines": {
     "node": ">=22"
