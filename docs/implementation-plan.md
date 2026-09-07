@@ -11,7 +11,7 @@
 - **partial（部分完成）**：已交付一部分，剩余项在最后一列明确列出。
 - **blocked（被前置条件阻断）**：缺少必要证据或输入；不得猜测后继续，也不得标完成。
 
-表内命令别名均从仓库根目录执行。测试使用合成小样本，真实原件不提交 Git。下列命令的对应测试已由执行代理验证；最终全量数量、浏览器实测及代码快照由主任务的最终验证记录统一给出，避免本表固定易过时的测试总数。
+表内命令别名均从仓库根目录执行。测试使用合成小样本，真实原件不提交 Git。这里列出每张卡的检查入口；已经确认的范围以各行状态为准，最终全量结果、浏览器实测及代码快照由主任务的最终验证记录统一给出，避免将一条命令的存在等同于验收通过。
 
 | 别名 | 检查命令 / 验收方式 |
 | --- | --- |
@@ -25,10 +25,12 @@
 | GEO | `uv run pytest tests/test_geometry.py`；纯 WGS84 IF/TF 引擎、断线与原始顺序规则。 |
 | WEB | `npm run test:web`；Vitest 行为断言。 |
 | E2E | `npm run test:e2e`；默认隔离合成数据浏览器验收。 |
-| LIVE-DTPP | `uv run flightmap-ingest update --product dtpp`；真实首次 staged、重复 unchanged；`report --release-id ...` 给出 27,428 输入 / 27,416 成功 / 12 不支持 / 0 错误。 |
+| LIVE-DTPP | `uv run flightmap-ingest update --product dtpp`；真实首次 staged、重复 unchanged；`uv run flightmap-ingest report --release-id <update返回的release_id>` 给出 27,428 输入 / 27,416 成功 / 12 不支持 / 0 错误。 |
 | LIVE-NASR | `uv run flightmap-ingest update --product nasr`；真实获取与解析成功，随后 needs-user-action；原件及 19,411 / 19,411 / 0 / 0 报告已保留，不生成猜测时刻发布。 |
 
 发布 2609 的已核实区间是 d-TPP XML 给出的 `[2026-09-03T09:01Z, 2026-10-01T09:01Z)`。它不适用于推断 NASR。12 条 DAU 类别在目录中保留为不支持警告。3197 个机场目录节点没有坐标，能力名为 `airport-catalog`；不会冒充机场地图图层。
+
+代码入口采用以下目录简称：`schema/` 表示 `packages/schema/src/flightmap_schema/`；`storage/` 表示 `packages/storage/src/flightmap_storage/`；`ingestion/` 表示 `services/ingestion/src/flightmap_ingestion/`；`web/` 表示 `apps/web/`。界面组件单文件名均位于 `apps/web/src/`。API 的完整路由前缀为 `/api/v1`，函数和字段名以 [接口契约](interface-contract.md) 与实际模型为准。
 
 ## A：依据与执行基线
 
@@ -151,10 +153,10 @@
 | H03 | tested | 前端到期定时、恢复前台与失败状态清理航空数据。 | WEB、E2E；保留参考地图及重试入口。 |
 | H04 | tested | 显式 current/preview/history，状态标签醒目，不能用历史模式读取未经提升的当前候选。 | STORE、API、WEB；跨产品图纸不悄悄换成最新周期。 |
 | H05 | tested | update 串联获取和构建、重复导入幂等、失败/需要人工输入保留原件/日志。 | ACQUIRE、LIVE-DTPP、LIVE-NASR；NASR/CIFP 阻断如实返回。 |
-| H06 | implemented | `Repository.report` 输出与 Current 相比的 added/removed/changed。 | STORE 覆盖更正发布；完整逐类差异验收仍需固定变更样本，不设猜测阈值。 |
+| H06 | implemented | `Repository.report` 与同来源、同产品中创建时间不晚于目标的最近另一候选比较，返回 previous_release_id 及 added/removed/changed；changed 比较同 ID 字段时忽略 provenance。 | STORE 已覆盖更正的新增/删除；完整差异用例以最终验收结果为准。无前一候选时以空集合比较，不依赖 Current 指针，不设猜测阈值。 |
 | H07 | partial | API 显示最近尝试/最近发布，来源和官方更正入口可见。 | API、WEB；公告自动解析和紧急重建未纳入已完成能力。 |
-| H08 | implemented | discovery CLI 失败非零且始终可写 JSON；工作流 always 上传报告。 | ACQUIRE 验证本地失败报告；远程计划任务实际运行待 CI。 |
-| H09 | partial | CLI help、source-evidence、实施台账和任务卡已具备。 | 最终启动/提升/撤销/恢复步骤与 README 由主任务统一核对。 |
+| H08 | implemented | discovery CLI 网络失败默认非零，提供 --output 时保留 JSON；工作流 always 上传报告。 | ACQUIRE 验证本地失败报告；远程计划任务实际运行待 CI。 |
+| H09 | implemented | README 已包含安装启动、数据/来源目录配置、更新、显式提升、撤销以及停止进程后复制整个数据目录的备份/恢复步骤；与 CLI 和接口契约已核对。 | 文档已完成；跨目录恢复是否通过以最终生命周期测试为准，未凭文档存在标 tested。 |
 | H10 | partial | 持久化/重启/预览/边界/更正/撤销的合成测试，真实 d-TPP 重复获取及显式提升。 | 全产品真实周期演练未完成；NASR 等 C07a，CIFP 等 A05/A06/F07/F11。 |
 
 ## 下一轮的领取顺序和停止规则

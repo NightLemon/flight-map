@@ -176,7 +176,7 @@ function App() {
     const token = ++detailEpoch.current
     setProcedureChosen(true)
     setDetail(null); setGeometry(null); setBranch(''); setResearchLoading(true); setResearchMessage('')
-    if (!sameChartCycle(release, releases.dtpp)) { setCharts([]); setChartMessage('没有所选程序同一 AIRAC 周期的航图。请显式选择对应版本。') }
+    if (!sameChartCycle(release, releases.dtpp)) { setCharts([]); setChartMessage('没有与所选程序周期及有效期匹配的航图。请显式选择对应版本。') }
     else setChartMessage('程序与航图关联未确认。请选择机场目录中的官方航图核对。')
     try {
       const payload = assertVersion(await getJson<Procedure>(`/procedures/${encodeURIComponent(record.id)}?${versionQuery(release, mode)}`), release, mode)

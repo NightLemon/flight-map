@@ -30,4 +30,18 @@ describe('publication session', () => {
     expect(officialPdfUrl('https://faa.gov.example.com/sample.pdf')).toBeNull()
     expect(officialPdfUrl('javascript:alert(1)')).toBeNull()
   })
+  it('pairs same-cycle releases only when their valid intervals overlap', () => {
+    const procedure = release('cifp')
+    expect(sameChartCycle(procedure, release('dtpp'))).toBe(true)
+    expect(sameChartCycle(procedure, release('dtpp', { valid_from: '2026-09-20T09:01:00Z', valid_to: '2026-10-10T09:01:00Z' }))).toBe(true)
+    expect(sameChartCycle(procedure, release('dtpp', { valid_from: procedure.valid_to, valid_to: '2026-10-29T09:01:00Z' }))).toBe(false)
+    expect(sameChartCycle(procedure, release('dtpp', { valid_from: '2026-08-01T09:01:00Z', valid_to: '2026-09-01T09:01:00Z' }))).toBe(false)
+    expect(sameChartCycle(procedure, release('dtpp', { valid_from: procedure.valid_to, valid_to: procedure.valid_from }))).toBe(false)
+    expect(sameChartCycle(undefined, release('dtpp'))).toBe(false)
+    expect(sameChartCycle(procedure, undefined)).toBe(false)
+  })
+  it.each(['valid_from', 'valid_to'] as const)('rejects an unparseable %s in either release', (field) => {
+    expect(sameChartCycle(release('cifp', { [field]: 'invalid-date' }), release('dtpp'))).toBe(false)
+    expect(sameChartCycle(release('cifp'), release('dtpp', { [field]: 'invalid-date' }))).toBe(false)
+  })
 })

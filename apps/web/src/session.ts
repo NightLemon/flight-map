@@ -23,7 +23,13 @@ export function expired(releases: Record<string, Release>, now: number) {
 }
 
 export function sameChartCycle(procedureRelease: Release | undefined, chartRelease: Release | undefined) {
-  return Boolean(procedureRelease && chartRelease && procedureRelease.airac === chartRelease.airac)
+  if (!procedureRelease || !chartRelease || procedureRelease.airac !== chartRelease.airac) return false
+  const procedureStart = Date.parse(procedureRelease.valid_from)
+  const procedureEnd = Date.parse(procedureRelease.valid_to)
+  const chartStart = Date.parse(chartRelease.valid_from)
+  const chartEnd = Date.parse(chartRelease.valid_to)
+  return [procedureStart, procedureEnd, chartStart, chartEnd].every(Number.isFinite)
+    && Math.max(procedureStart, chartStart) < Math.min(procedureEnd, chartEnd)
 }
 
 export function officialPdfUrl(value: unknown): string | null {

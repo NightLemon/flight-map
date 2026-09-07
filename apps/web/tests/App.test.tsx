@@ -156,7 +156,7 @@ describe('research workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /SYNTHETIC SID/ }))
     await screen.findByRole('combobox', { name: '程序分支' })
     expect(screen.queryByTitle(/官方航图/)).not.toBeInTheDocument()
-    expect(screen.getByText(/没有所选程序同一 AIRAC 周期的航图/)).toBeVisible()
+    expect(screen.getByText(/没有与所选程序周期及有效期匹配的航图/)).toBeVisible()
   })
 
   it('clears current records at the server effective-time boundary', async () => {
