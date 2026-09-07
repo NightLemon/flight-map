@@ -229,9 +229,39 @@ class Repository:
 
     def get_release(self, release_id: str) -> DatasetRelease:
         with self._connect() as connection:
-            return DatasetRelease.model_validate_json(
-                self._release_row(connection, release_id)["metadata"]
-            )
+            try:
+                return DatasetRelease.model_validate_json(
+                    self._release_row(connection, release_id)["metadata"]
+                )
+            except ValueError as exc:
+                if isinstance(exc, StoreError):
+                    raise
+                raise StoreError("Stored release metadata is invalid", 403) from exc
+
+    def _check_stored(self, connection, row):
+        try:
+            release = DatasetRelease.model_validate_json(row["metadata"])
+            report = ValidationReport.model_validate_json(row["report"])
+        except ValueError as exc:
+            raise StoreError("Stored release or validation report is invalid", 403) from exc
+        if (release.id, release.source_id, release.product_id) != (
+            row["id"],
+            row["source_id"],
+            row["product_id"],
+        ):
+            raise StoreError("Stored release identity is inconsistent", 403)
+        if report.blocking or not report.success_count:
+            raise StoreError("Stored validation report blocks this release", 403)
+        if set(release.capabilities) != set(report.capabilities):
+            raise StoreError("Stored capabilities do not match the validation report", 403)
+        if (
+            connection.execute(
+                "SELECT 1 FROM records WHERE release_id=? LIMIT 1", (release.id,)
+            ).fetchone()
+            is None
+        ):
+            raise StoreError("Stored release contains no records", 403)
+        return release, report
 
     def promote(
         self,
@@ -246,8 +276,7 @@ class Repository:
             row = self._release_row(connection, release_id)
             if row["revoked_reason"] is not None:
                 raise StoreError("Revoked release cannot be promoted", 410)
-            release = DatasetRelease.model_validate_json(row["metadata"])
-            report = ValidationReport.model_validate_json(row["report"])
+            release, report = self._check_stored(connection, row)
             try:
                 check_publication(release, product, source_id=source_id, at=at)
             except ValueError as exc:
@@ -291,6 +320,8 @@ class Repository:
         mode: Literal["current", "preview", "history"] = "current",
         at: datetime | None = None,
     ) -> DatasetRelease:
+        if mode not in {"current", "preview", "history"}:
+            raise StoreError("Unknown release view mode")
         now = at or datetime.now(UTC)
         with self._connect() as connection:
             row = self._release_row(connection, release_id)
@@ -312,6 +343,7 @@ class Repository:
             if mode == "history" and (
                 release.valid_from > now
                 or (pointer is not None and pointer[0] == release_id and now < release.valid_to)
+                or (now < release.valid_to and row["promoted_at"] is None)
             ):
                 raise StoreError("This release is not historical", 409)
             try:
@@ -320,20 +352,39 @@ class Repository:
                 )
             except ValueError as exc:
                 raise StoreError(str(exc), 403) from exc
+            self._check_stored(connection, row)
             return release
 
     def snapshot(self) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN")
-            releases = [
-                {
-                    **json.loads(row["metadata"]),
-                    "revoked_reason": row["revoked_reason"],
-                    "promoted_at": row["promoted_at"],
-                    "report": json.loads(row["report"]),
-                }
-                for row in connection.execute("SELECT * FROM releases ORDER BY created_at DESC,id")
-            ]
+            releases, storage_errors = [], []
+            for row in connection.execute("SELECT * FROM releases ORDER BY created_at DESC,id"):
+                try:
+                    metadata = DatasetRelease.model_validate_json(row["metadata"])
+                except ValueError:
+                    storage_errors.append({"release_id": row["id"], "reason": "Invalid metadata"})
+                    continue
+                stored_error = None
+                try:
+                    self._check_stored(connection, row)
+                except StoreError as exc:
+                    stored_error = str(exc)
+                try:
+                    parsed_report = ValidationReport.model_validate_json(row["report"]).model_dump(
+                        mode="json"
+                    )
+                except ValueError:
+                    parsed_report = {}
+                releases.append(
+                    {
+                        **metadata.model_dump(mode="json"),
+                        "revoked_reason": row["revoked_reason"],
+                        "promoted_at": row["promoted_at"],
+                        "report": parsed_report,
+                        "storage_error": stored_error,
+                    }
+                )
             pointers = {
                 f"{row['source_id']}:{row['product_id']}": row["release_id"]
                 for row in connection.execute("SELECT * FROM current_releases")
@@ -345,7 +396,12 @@ class Repository:
                     "GROUP BY product_id) b ON a.id=b.id ORDER BY a.id DESC"
                 )
             ]
-            return {"releases": releases, "pointers": pointers, "attempts": attempts}
+            return {
+                "releases": releases,
+                "pointers": pointers,
+                "attempts": attempts,
+                "storage_errors": storage_errors,
+            }
 
     def list_releases(self) -> list[dict[str, Any]]:
         return self.snapshot()["releases"]

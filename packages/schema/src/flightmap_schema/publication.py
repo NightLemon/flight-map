@@ -15,6 +15,8 @@ def check_publication(
     audience: Literal["local", "redistribution"] = "local",
     require_current: bool = True,
 ) -> None:
+    if audience not in {"local", "redistribution"}:
+        raise ValueError("Unknown publication audience")
     now = at or datetime.now(UTC)
     if now.tzinfo is None:
         raise ValueError("Query time must include timezone")

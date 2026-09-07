@@ -118,7 +118,7 @@ def create_app(
                 {
                     k: v
                     for k, v in item.items()
-                    if k not in {"revoked_reason", "promoted_at", "report"}
+                    if k not in {"revoked_reason", "promoted_at", "report", "storage_error"}
                 }
             )
             product = policy.get((release.source_id, release.product_id))
@@ -128,6 +128,8 @@ def create_app(
                 state, reason = "revoked", item["revoked_reason"]
             elif release.quality_status.value != "verified":
                 state, reason = "quarantined", "验证未通过；查看验证报告"
+            elif item["storage_error"]:
+                state, reason = "blocked", item["storage_error"]
             elif product is None:
                 state, reason = "blocked", "来源未登记"
             else:
@@ -150,7 +152,7 @@ def create_app(
                 "reason": reason,
                 "revoked_reason": item["revoked_reason"],
                 "counts": {
-                    key: item["report"][key]
+                    key: item["report"].get(key, 0)
                     for key in ["input_count", "success_count", "unsupported_count", "error_count"]
                 },
             }
@@ -165,6 +167,7 @@ def create_app(
             "publication_state": "current" if current else "empty",
             "releases": releases,
             "attempts": stored["attempts"],
+            "storage_errors": stored["storage_errors"],
             "disclaimer": DISCLAIMER,
         }
 
