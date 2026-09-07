@@ -24,6 +24,7 @@ class VerifiedDownload:
     sha256: str
     size_bytes: int
     content_type: str
+    final_url: str | None = None
 
 
 def verify_download(path: Path, content_type: str, *, require_zip: bool) -> tuple[str, int]:
@@ -31,7 +32,8 @@ def verify_download(path: Path, content_type: str, *, require_zip: bool) -> tupl
     if size == 0:
         raise AssetVerificationError("下载内容为空")
 
-    prefix = path.read_bytes()[:512].lstrip().lower()
+    with path.open("rb") as stream:
+        prefix = stream.read(512).lstrip().lower()
     normalized_type = content_type.split(";", 1)[0].strip().lower()
     if normalized_type in {"text/html", "application/xhtml+xml"} or prefix.startswith(
         (b"<!doctype html", b"<html")
@@ -80,6 +82,7 @@ class AssetDownloader:
                     follow_redirects=True,
                 ) as response:
                     response.raise_for_status()
+                    final_url = str(response.url)
                     content_type = response.headers.get("content-type", "application/octet-stream")
                     total = 0
                     for chunk in response.iter_bytes():
@@ -95,7 +98,7 @@ class AssetDownloader:
                 temp_path.unlink()
             else:
                 os.replace(temp_path, final_path)
-            return VerifiedDownload(final_path, digest, size, content_type)
+            return VerifiedDownload(final_path, digest, size, content_type, final_url)
         except Exception:
             if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
