@@ -9,7 +9,7 @@ import {
 } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { GeoJsonProperties } from 'geojson'
-import type { Bounds, MapData } from './map-data'
+import { normalizeMapBounds, type Bounds, type MapData } from './map-data'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 setWorkerUrl(workerUrl)
@@ -69,10 +69,7 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
     map.addControl(new ScaleControl({ unit: 'nautical' }), 'bottom-left')
     const emitBounds = () => {
       const b = map.getBounds()
-      latest.current.onBounds([
-        Math.max(-180, b.getWest()), Math.max(-90, b.getSouth()),
-        Math.min(180, b.getEast()), Math.min(90, b.getNorth()),
-      ])
+      latest.current.onBounds(normalizeMapBounds([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]))
     }
     map.on('load', () => {
       map.addSource('reference-grid', { type: 'geojson', data: createReferenceGrid() })
