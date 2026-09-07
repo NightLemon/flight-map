@@ -21,8 +21,9 @@ jobs:
           python-version: '3.12'
       - run: uv sync --all-packages --locked
       - name: Discover official links without downloading or publishing
-        run: uv run flightmap-ingest discover-faa --dry-run --allow-network-failure > faa-discovery.json
+        run: uv run flightmap-ingest discover-faa --dry-run --output faa-discovery.json
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: faa-discovery
           path: faa-discovery.json
