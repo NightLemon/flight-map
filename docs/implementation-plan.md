@@ -19,6 +19,7 @@
 | STORE | `uv run pytest tests/test_storage.py` |
 | API | `uv run pytest tests/test_api.py tests/test_research_api.py` |
 | AUDIT | `uv run pytest tests/test_release_audit.py`；检查发布持久化、读取结束二次门禁、原始腿顺序；本表不代替最终运行报告。 |
+| LIFECYCLE | `uv run pytest tests/test_lifecycle_acceptance.py`；固定差异样本、完整目录恢复、原件校验和周期/撤销演练。 |
 | ACQUIRE | `uv run pytest tests/test_acquisition_build.py tests/test_acquisition_discovery.py tests/test_acquisition_download.py tests/test_faa_discovery.py tests/test_download.py` |
 | PARSE | `uv run pytest tests/test_parsers_faa.py` |
 | CIFP | `uv run pytest tests/test_cifp.py`；结构读取/阻断边界，不是正式 CIFP 发布验收。 |
@@ -81,9 +82,9 @@
 | D03 | tested | 坐标无效、身份冲突、必需字段与日期冲突明确报告。 | PARSE；计数覆盖成功与错误。 |
 | D04 | partial | `acquisition.build_local` 可通过 manifest 构建候选；自动 NASR 获取保留解析报告。 | ACQUIRE；真实 NASR stage/Current 等 C07a。 |
 | D05 | tested | API `/status` 从 SQLite 返回真实发布、精确区间和状态。 | API、实际 d-TPP Current；NASR 不伪装可用。 |
-| D06 | tested | `/coverage` 返回来源、状态、验证计数、最近尝试及具体阻断原因。 | API；真实 NASR 时间缺失原因已记录。 |
+| D06 | tested | `/coverage` 返回来源、状态、验证计数、最近尝试及具体阻断原因。 | API、`uv run pytest tests/test_coverage_states.py`；区分未导入、失败、阻断和过期；有效 Current 不被单次更新失败隐藏。 |
 | D07 | tested | `/features?layer=airports&release_id=...&bbox=...` 有界查询。 | API 的持久化合成机场；真实 NASR 图层验收等 C07a。 |
-| D08 | tested | 按官方标识/ICAO/名称搜索，返回来源作用域 ID。 | API；d-TPP 的无坐标目录机场已可搜索。 |
+| D08 | tested | 按官方标识/显式 ICAO/名称搜索，返回来源作用域 ID。 | API、`uv run pytest tests/test_airport_ident_search.py`；不添加推测前缀，精确标识优先；d-TPP 无坐标目录已可搜索。 |
 | D09 | tested | `web/src/App.tsx` 接真实状态、覆盖、加载/空/离线状态。 | WEB、E2E；最终真实浏览器结果由总验收记录。 |
 | D10 | partial | `AviationMap.tsx` 可显示 API 机场点与来源/有效期。 | WEB、E2E 合成数据；真实 NASR 坐标图层仍等 C07a。 |
 | D11 | partial | 搜索结果可选择并定位有坐标的机场，无坐标目录机场明确显示资料。 | WEB、E2E；真实 NASR 搜索→定位验收仍等 C07a。 |
@@ -153,10 +154,10 @@
 | H03 | tested | 前端到期定时、恢复前台与失败状态清理航空数据。 | WEB、E2E；保留参考地图及重试入口。 |
 | H04 | tested | 显式 current/preview/history，状态标签醒目，不能用历史模式读取未经提升的当前候选。 | STORE、API、WEB；跨产品图纸不悄悄换成最新周期。 |
 | H05 | tested | update 串联获取和构建、重复导入幂等、失败/需要人工输入保留原件/日志。 | ACQUIRE、LIVE-DTPP、LIVE-NASR；NASR/CIFP 阻断如实返回。 |
-| H06 | implemented | `Repository.report` 与同来源、同产品中创建时间不晚于目标的最近另一候选比较，返回 previous_release_id 及 added/removed/changed；changed 比较同 ID 字段时忽略 provenance。 | STORE 已覆盖更正的新增/删除；完整差异用例以最终验收结果为准。无前一候选时以空集合比较，不依赖 Current 指针，不设猜测阈值。 |
-| H07 | partial | API 显示最近尝试/最近发布，来源和官方更正入口可见。 | API、WEB；公告自动解析和紧急重建未纳入已完成能力。 |
+| H06 | tested | `Repository.report` 与同来源、同产品中创建时间不晚于目标的最近另一候选比较，返回 previous_release_id 及 added/removed/changed；changed 比较同 ID 字段时忽略 provenance。 | STORE、LIFECYCLE：固定新增/删除/变更分别为 1，只有溯源变化时为 0。无前一候选时以空集合比较，不依赖 Current 指针，不设猜测阈值。 |
+| H07 | tested | API 和覆盖界面显示最近成功周期、精确有效期、获取失败原因及同来源官方更正公告入口。 | `test_coverage_states.py`、WEB：失败/隔离候选不覆盖最近验证通过的周期；过期成功记录不变成当前可用资料。 |
 | H08 | implemented | discovery CLI 网络失败默认非零，提供 --output 时保留 JSON；工作流 always 上传报告。 | ACQUIRE 验证本地失败报告；远程计划任务实际运行待 CI。 |
-| H09 | implemented | README 已包含安装启动、数据/来源目录配置、更新、显式提升、撤销以及停止进程后复制整个数据目录的备份/恢复步骤；与 CLI 和接口契约已核对。 | 文档已完成；跨目录恢复是否通过以最终生命周期测试为准，未凭文档存在标 tested。 |
+| H09 | tested | README 包含安装启动、数据/来源目录配置、更新、提升、撤销、完整目录备份/恢复，与 CLI 和接口契约一致。 | CLI help、真实 API/Web 分别启动通过，dev.ps1 语法检查通过；LIFECYCLE 确认原目录不可用时仍可从新目录恢复并提升/撤销。 |
 | H10 | partial | 持久化/重启/预览/边界/更正/撤销的合成测试，真实 d-TPP 重复获取及显式提升。 | 全产品真实周期演练未完成；NASR 等 C07a，CIFP 等 A05/A06/F07/F11。 |
 
 ## 下一轮的领取顺序和停止规则

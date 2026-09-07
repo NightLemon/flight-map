@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "source_id": {
+      "default": "faa-aeronav",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "product_id": {
+      "title": "Product Id",
+      "type": "string"
+    },
+    "source_url": {
+      "title": "Source Url",
+      "type": "string"
+    },
+    "airac": {
+      "pattern": "^\\d{4}$",
+      "title": "Airac",
+      "type": "string"
+    },
+    "valid_from": {
+      "format": "date-time",
+      "title": "Valid From",
+      "type": "string"
+    },
+    "valid_to": {
+      "format": "date-time",
+      "title": "Valid To",
+      "type": "string"
+    },
+    "validity_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Validity Evidence",
+      "type": "array"
+    },
+    "parser_version": {
+      "default": "0.2.0",
+      "title": "Parser Version",
+      "type": "string"
+    },
+    "member": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Member"
+    }
+  },
+  "required": [
+    "product_id",
+    "source_url",
+    "airac",
+    "valid_from",
+    "valid_to",
+    "validity_evidence"
+  ],
+  "title": "ImportManifest",
+  "type": "object"
+}

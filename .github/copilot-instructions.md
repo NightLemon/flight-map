@@ -9,6 +9,8 @@
 - [x] 开发环境已启动并完成浏览器验证。
 - [x] README 和架构、数据治理、来源目录文档已完成。
 
+当前实现状态以 docs/implementation-plan.md 为准。完整研究平台的证据阻断项不得计入已完成；本机使用权限与再分发权限分开核实。
+
 ## 持续开发规则
 
 - 跟用户使用中文交流，代码标识符和技术术语可保留英文。
@@ -17,6 +19,6 @@
 - Preview 不进入 Current；旧周期到期必须下线。
 - 未支持的 ARINC Path Terminator 不得生成 fallback 直线。
 - 社区数据必须作为独立参考层，不能静默覆盖官方数据。
-- 许可不明确时采用 fail-closed，只保存元数据与官方链接。
+- 许可不明确时采用 fail-closed；本地获取/处理与再分发分别依据注册表政策判断。
 - 代码、数据与航图许可分开管理；不要把大文件或原始航图提交到 Git。
 - 修改后运行 `uv run ruff check .`、`uv run pytest`、`npm run lint` 和 `npm run build`。
