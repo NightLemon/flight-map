@@ -353,11 +353,17 @@ def create_app(
             raise StoreError("Procedure not found", 404)
         if not branch_id:
             raise StoreError("Select one explicit branch_id")
-        legs = repo.list_records(
-            release.id, kind="leg", parent_id=id, branch_id=branch_id, limit=100000
-        )
-        if not legs:
+        legs = repo.list_records(release.id, kind="leg", parent_id=id, limit=100000)
+        if not any(leg.branch_id == branch_id for leg in legs):
             raise StoreError("Procedure branch not found", 404)
+        legs.sort(
+            key=lambda leg: (
+                leg.provenance.asset_sha256,
+                leg.provenance.member or "",
+                leg.provenance.line if leg.provenance.line is not None else 10**18,
+                leg.provenance.locator,
+            )
+        )
         return envelope(release, mode, **geometry_for_legs(legs, branch_id=branch_id))
 
     @application.get("/api/v1/releases/{id}/report")
