@@ -166,7 +166,7 @@ def report(
     release_id: Annotated[str, typer.Option()],
     data_dir: DataOption = Path("data"),
 ) -> None:
-    """Read validation results and the difference from Current."""
+    """Read validation results and the difference from the previous candidate."""
     try:
         _echo(Repository(data_dir).report(release_id))
     except ValueError as exc:
