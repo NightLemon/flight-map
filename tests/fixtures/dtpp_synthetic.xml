@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<digital_tpp cycle="2609" from_edate="0901Z 09/03/26" to_edate="0901Z 10/01/26">
+  <state_code ID="XX"><city_name ID="SYNTHETIC">
+    <airport_name ID="SYNTHETIC TEST AIRPORT" apt_ident="TST" icao_ident="XTST">
+      <record><chartseq>90100</chartseq><chart_code>DP</chart_code><chart_name>SYNTHETIC DEPARTURE</chart_name><pdf_name>TESTDP.PDF</pdf_name><procuid>1</procuid><faanfd18>TEST1.TEST</faanfd18></record>
+      <record><chartseq>30000</chartseq><chart_code>STR</chart_code><chart_name>SYNTHETIC ARRIVAL</chart_name><pdf_name>TESTST.PDF</pdf_name><procuid>2</procuid></record>
+      <record><chartseq>53525</chartseq><chart_code>IAP</chart_code><chart_name>SYNTHETIC APPROACH</chart_name><pdf_name>TESTIA.PDF</pdf_name><procuid>3</procuid></record>
+      <record><chartseq>53525</chartseq><chart_code>IAP</chart_code><chart_name>SYNTHETIC DELETED</chart_name><pdf_name>DELETED_JOB.PDF</pdf_name><procuid>4</procuid><useraction>D</useraction></record>
+    </airport_name>
+  </city_name></state_code>
+</digital_tpp>
