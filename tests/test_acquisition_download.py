@@ -13,7 +13,9 @@ def test_verification_does_not_read_entire_file_at_once(tmp_path, monkeypatch):
 
 
 def test_download_limit_removes_temporary_file(tmp_path, monkeypatch):
-    response = httpx.Response(200, content=b"too large", request=httpx.Request("GET", "https://faa.gov/x"))
+    response = httpx.Response(
+        200, content=b"too large", request=httpx.Request("GET", "https://faa.gov/x")
+    )
 
     class Stream:
         def __enter__(self):

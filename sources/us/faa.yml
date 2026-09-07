@@ -17,6 +17,14 @@ sources:
         license_status: review-required
         redistribution: 产品级再分发条款尚未完成书面确认；当前只发现和校验，不公开镜像。
         notes: 下载前需接受 FAA CIFP 错误通知协议；不得把解析成功等同于运行级适航数据。
+        local_access:
+          acquisition: needs-user-action
+          processing: needs-user-action
+          agreement_required: true
+          evidence:
+            - https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/cifp/
+            - FAA CIFP Error Notification Process requires the user to acknowledge the agreement.
+          reviewed_at: 2026-09-07T09:00:00Z
         discovery:
           link_contains: [cifp, zip]
           require_zip: true
@@ -29,7 +37,15 @@ sources:
         formats: [CSV, TXT, ZIP]
         license_status: review-required
         redistribution: 产品级再分发条款尚未确认；当前只保留来源元数据。
-        notes: 仅作为设施补充和交叉验证，不静默覆盖 CIFP。
+        notes: 为本机机场定位和交叉验证提供设施资料；保留 NAD83 与官方国家字段，不静默覆盖 CIFP。
+        local_access:
+          acquisition: allowed
+          processing: allowed
+          evidence:
+            - https://nfdc.faa.gov/webContent/28DaySub/2026-09-03/README.txt
+            - All subscriber files are available free of charge; no registration is necessary to access or download.
+            - The accompanying CSV_README.pdf explicitly provides CSV for internal and external users and documents how to use the data.
+          reviewed_at: 2026-09-07T09:00:00Z
         discovery:
           link_contains: [28DaySubscription, Subscription, zip]
           require_zip: true
@@ -43,6 +59,14 @@ sources:
         license_status: review-required
         redistribution: 未确认前仅展示元数据与 FAA 官方链接，不公开镜像。
         notes: 用作程序矢量结果的视觉核对；PDF 无官方地理配准时不叠加到地图。
+        local_access:
+          acquisition: allowed
+          processing: allowed
+          evidence:
+            - https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/search/
+            - https://aeronav.faa.gov/dtpp/Metafile_XML_Definitions.pdf
+            - The official search page directly provides the XML catalog; its definitions explicitly describe opening it in Excel to view all fields.
+          reviewed_at: 2026-09-07T09:00:00Z
         discovery:
           link_contains: [DDTPP, dtpp, zip]
           require_zip: true

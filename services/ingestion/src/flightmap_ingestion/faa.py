@@ -1,4 +1,5 @@
 """Product-specific FAA discovery; classify links before acquisition."""
+
 from __future__ import annotations
 
 import re
@@ -107,11 +108,15 @@ class FaaDiscovery:
                 continue
             seen.add(absolute_url)
             date_match = _DATE_TOKEN.search(f"{absolute_url} {label}")
-            candidates.append(DiscoveryCandidate(
-                url=absolute_url, label=label,
-                observed_date_token=date_match.group(1) if date_match else None,
-                kind=classification[0], role=classification[1],
-            ))
+            candidates.append(
+                DiscoveryCandidate(
+                    url=absolute_url,
+                    label=label,
+                    observed_date_token=date_match.group(1) if date_match else None,
+                    kind=classification[0],
+                    role=classification[1],
+                )
+            )
         return candidates
 
     def fetch(
@@ -119,7 +124,9 @@ class FaaDiscovery:
     ) -> list[DiscoveryCandidate]:
         """Read listed edition/search pages, never follow an agreement link."""
         with httpx.Client(
-            headers={"User-Agent": USER_AGENT}, timeout=timeout_seconds, follow_redirects=True,
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout_seconds,
+            follow_redirects=True,
         ) as client:
             response = client.get(str(product.landing_page))
             response.raise_for_status()
