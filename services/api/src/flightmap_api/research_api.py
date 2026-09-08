@@ -1,5 +1,6 @@
 """Read-only snapshot endpoints. Every response retains the requested research version."""
 
+import math
 from typing import Annotated, Literal
 
 from fastapi import Query
@@ -55,6 +56,62 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
             "disclaimer": disclaimer,
             "items": [r.model_dump(mode="json") for r in records[:limit]],
             "truncated": len(records) > limit,
+        }
+
+    @application.get("/api/v1/research/features")
+    def features(
+        snapshot_id: str | None = None,
+        mode: ResearchMode = "active",
+        layer: Literal["airports"] = "airports",
+        bbox: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=10000)] = 5000,
+    ):
+        item = resolve(snapshot_id, mode)
+        try:
+            west, south, east, north = (float(v) for v in (bbox or "-180,-90,180,90").split(","))
+            if not (
+                all(math.isfinite(v) for v in (west, south, east, north))
+                and -180 <= west <= 180
+                and -180 <= east <= 180
+                and -90 <= south <= north <= 90
+            ):
+                raise ValueError("Invalid geographic bounds")
+        except ValueError as exc:
+            raise StoreError("bbox must be west,south,east,north in geographic degrees") from exc
+        selected = []
+        for record in repo.list_snapshot_records(item.id):
+            lon, lat = record.geometry["coordinates"]
+            longitude_matches = west <= lon <= east if west <= east else lon >= west or lon <= east
+            if not longitude_matches or not south <= lat <= north:
+                continue
+            selected.append(
+                {
+                    "type": "Feature",
+                    "id": record.id,
+                    "geometry": record.geometry,
+                    "properties": {
+                        **{k: v for k, v in record.properties.items() if k != "raw_fields"},
+                        "id": record.id,
+                        "name": record.name,
+                        "identifier": record.identifier,
+                        "kind": "airport",
+                        "airport_id": record.airport_id,
+                        "airport_ident": record.airport_ident,
+                        "provenance": record.provenance.model_dump(mode="json"),
+                        "snapshot_id": item.id,
+                    },
+                }
+            )
+            if len(selected) > limit:
+                break
+        resolve(item.id, mode)
+        return {
+            "snapshot_id": item.id,
+            "mode": mode,
+            "disclaimer": disclaimer,
+            "type": "FeatureCollection",
+            "features": selected[:limit],
+            "truncated": len(selected) > limit,
         }
 
     return resolve

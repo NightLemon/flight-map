@@ -54,3 +54,28 @@ def test_research_search_faa_explicit_icao_name_and_version_switch(tmp_path):
         client.get("/api/v1/research/search", params={**params, "mode": "history"}).status_code
         == 410
     )
+
+
+def test_research_features_bbox_antimeridian_and_invalid_bounds(tmp_path):
+    client, repo, raw, item, _ = configured_snapshot(tmp_path)
+    params = {"snapshot_id": item.id}
+    for bbox, count in [("-101,39,-99,41", 1), ("10,30,20,40", 0), ("170,-90,-90,90", 1)]:
+        response = client.get("/api/v1/research/features", params={**params, "bbox": bbox})
+        assert response.status_code == 200
+        features = response.json()["features"]
+        assert len(features) == count
+        if count:
+            assert features[0]["geometry"]["coordinates"] == [-100, 40]
+            assert features[0]["properties"]["snapshot_id"] == item.id
+            assert features[0]["properties"]["datum"] == "NAD83"
+    for bbox in ["nan,0,1,2", "0,0,999,1", "1,20,2,10", "1,2,3"]:
+        assert (
+            client.get("/api/v1/research/features", params={**params, "bbox": bbox}).status_code
+            == 400
+        )
+    assert (
+        client.get("/api/v1/research/features", params={**params, "layer": "runways"}).status_code
+        == 422
+    )
+    repo.revoke_snapshot(item.id, "withdrawn")
+    assert client.get("/api/v1/research/features", params=params).status_code == 410
