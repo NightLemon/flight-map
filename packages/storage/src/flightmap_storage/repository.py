@@ -55,13 +55,15 @@ class Repository:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in {0, 1}:
+            if version not in {0, 1, 2}:
                 raise StoreError(f"Unsupported database schema version: {version}")
-            if version == 0:
-                script = (Path(__file__).parent / "migrations/001_initial.sql").read_text("utf-8")
+            for target, filename in [(1, "001_initial.sql"), (2, "002_research_snapshots.sql")]:
+                if version >= target:
+                    continue
+                script = (Path(__file__).parent / "migrations" / filename).read_text("utf-8")
                 try:
                     connection.executescript(
-                        f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version=1;\nCOMMIT;"
+                        f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version={target};\nCOMMIT;"
                     )
                 except Exception:
                     connection.rollback()
