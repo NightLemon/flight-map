@@ -4,7 +4,7 @@ const revision = 'a'.repeat(40)
 const manifest = {
   schema: 1, source: { name: 'Synthetic reference', revision, updated_at: '2026-09-08T01:00:00Z' },
   tiles: { airports: ['21-26', '22-26'], runways: ['21-26', '22-26'], navaids: [] },
-  counts: {}, disclaimer: 'Synthetic test data',
+  counts: {}, disclaimer: 'Synthetic test data', review: null,
 }
 const feature = (id: string, coordinates = [-74, 40.5]) => ({
   type: 'Feature', id, geometry: { type: 'Point', coordinates }, properties: { id, kind: 'airport' },
@@ -49,7 +49,8 @@ describe('public reference data', () => {
     const countryManifest = {
       ...manifest,
       dataset_revision: datasetRevision,
-      coverage: [{ country: 'CN', airports: 2, airports_with_communications: 1, runways: 3, navaids: 1, enriched_airports: 1 }],
+      review: { reviewed_at: '2026-09-08', source_revision: revision, sha256: 'c'.repeat(64), correction_count: 1, note_count: 2 },
+      coverage: [{ country: 'CN', airports: 2, airports_with_communications: 1, airports_with_frequencies: 2, runways: 3, navaids: 1, enriched_airports: 1 }],
       sources: [{ id: 'ourairports', name: 'OurAirports', url: 'https://ourairports.com', license: 'Public Domain', license_url: 'https://ourairports.com', updated_at: '2026-09-08T01:00:00Z', scope: 'global', airport_count: 2 }],
     }
     const hits = [

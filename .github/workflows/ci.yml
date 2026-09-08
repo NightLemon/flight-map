@@ -46,6 +46,8 @@ jobs:
           python-version: '3.12'
       - name: Build the licensed public reference dataset
         run: python scripts/build_pages_data.py
+      - name: Verify reviewed mainland data and source preservation
+        run: python scripts/audit_mainland_reference.py --expect-reviewed
       - run: npm run build:pages
       - run: npm run test:pages
       - uses: actions/upload-artifact@v4

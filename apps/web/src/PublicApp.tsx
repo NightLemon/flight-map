@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { GeoJsonProperties } from 'geojson'
-import { AirportCommunications } from './AirportCommunications'
 import { AviationMap } from './AviationMap'
 import { EMPTY_MAP, type MapData, type MapViewport } from './map-data'
 import {
@@ -8,6 +7,7 @@ import {
   publicDataRevision, type AirportDetail, type AirportHit, type PublicLayer, type PublicManifest,
 } from './public-data'
 import type { ResearchRecord } from './api'
+import { PublicAirportDetails } from './PublicAirportDetails'
 import { WorkspaceSplitter } from './WorkspaceSplitter'
 import './PublicApp.css'
 
@@ -43,29 +43,6 @@ function airportFromProperties(properties: NonNullable<GeoJsonProperties>, coord
     country: stringValue(properties.country),
     coordinates,
   }
-}
-
-function text(record: ResearchRecord, ...keys: string[]) {
-  for (const key of keys) {
-    const value = stringValue(record.properties[key])
-    if (value) return value
-  }
-  return ''
-}
-
-function Runways({ items }: { items: ResearchRecord[] }) {
-  if (!items.length) return <p className="muted-copy">该机场没有可显示的跑道记录。</p>
-  return <section className="public-runways" aria-label="跑道">
-    <div className="section-heading"><span>跑道</span><small>{items.length} 条</small></div>
-    <div className="public-runway-list">{items.map((runway) => {
-      const length = text(runway, 'length_ft', 'length', 'length_feet')
-      const surface = text(runway, 'surface')
-      return <article key={runway.id}>
-        <b>{runway.identifier || runway.name || '未命名跑道'}</b>
-        {(length || surface) && <small>{[length && `${length} ft`, surface].filter(Boolean).join(' · ')}</small>}
-      </article>
-    })}</div>
-  </section>
 }
 
 function Properties({ properties }: { properties: NonNullable<GeoJsonProperties> }) {
@@ -220,7 +197,7 @@ function PublicApp() {
   const dataDate = manifest ? displayDate(manifest.source.updated_at) : '加载中…'
   const selectedCoverage = manifest?.coverage?.find((item) => item.country === country)
   const coverageSummary = manifest?.coverage && (selectedCoverage
-    ? `${countryName(selectedCoverage.country)}：${selectedCoverage.airports} 个航空设施 · ${selectedCoverage.airports_with_communications} 个含频率记录`
+    ? `${countryName(selectedCoverage.country)}：${selectedCoverage.airports} 个航空设施 · ${selectedCoverage.airports_with_communications} 个含语音通信记录${selectedCoverage.airports_with_frequencies !== undefined ? ` · ${selectedCoverage.airports_with_frequencies} 个含频率记录` : ''}`
     : `全球 ${manifest.coverage.length} 个国家和地区 · ${manifest.coverage.reduce((total, item) => total + item.airports, 0)} 个航空设施`)
   const sourceCount = manifest?.sources?.length ?? 1
   const airportOverview = Boolean(viewport && layers.includes('airports') && viewport.zoom < 8)
@@ -271,6 +248,7 @@ function PublicApp() {
           <section><div className="section-heading"><span>公开来源</span><button className="text-button" onClick={() => refreshManifest()}>重新读取</button></div>
             {manifest ? <><a href={manifest.source.url} target="_blank" rel="noopener noreferrer">{manifest.source.name} ↗</a>
               <p className="source-detail">许可：<a href={manifest.source.license_url} target="_blank" rel="noopener noreferrer">{manifest.source.license}</a><br />数据版本：{publicDataRevision(manifest) || '未提供'}<br />上游更新时间：{manifest.source.updated_at || '未提供'}</p>
+              {manifest.review && <p className="source-detail">资料审查：{displayDate(manifest.review.reviewed_at)}<br />已勘误 {manifest.review.correction_count} 项 · 核查记录 {manifest.review.note_count} 项<br /><span className="muted-copy">审查日期不同于上游快照时间。</span></p>}
               {manifest.sources && <SourceList sources={manifest.sources} />}
               {isOlderThan30Days(manifest.source.updated_at) && <p className="data-attention">上游快照日期已超过 30 天，请先核对来源更新。</p>}
               <p className="muted-copy">此日期是上游数据快照更新时间，不代表 AIRAC 有效期。</p></> : <p className="muted-copy">{manifestLoading ? '正在读取公开数据清单…' : '清单尚不可用。'}</p>}
@@ -306,7 +284,7 @@ function PublicApp() {
         {ourAirportsUrl && <a className="official-link" href={ourAirportsUrl} target="_blank" rel="noopener noreferrer">在 OurAirports 查看机场页 ↗</a>}
         {detailLoading && <p className="muted-copy" role="status">正在读取机场、频率和跑道资料…</p>}
         {detailError && <p className="inline-notice" role="status">机场详情读取失败：{detailError} <button className="text-button" onClick={() => selectedAirport && chooseAirport(selectedAirport, false)}>重试</button></p>}
-        {detail && <><AirportCommunications items={detail.communications} loading={false} message="" /><Runways items={detail.runways} /><References items={detail.references ?? []} /></>}
+        {detail && <><PublicAirportDetails detail={detail} /><References items={detail.references ?? []} /></>}
         <section className="scope-notice"><span>!</span><p><b>非运行用途</b><br />资料为全球公开参考，频率记录可能不完整；使用前请以适用官方资料和运行程序核对。</p></section>
       </>}
     </aside>

@@ -1,2 +1,4 @@
 # PDF xref byte offsets must survive Windows checkout unchanged.
 tests/fixtures/synthetic-two-page.pdf binary
+# The published review catalog is hashed byte-for-byte on Windows and in CI.
+reference-sources/ourairports-review.json text eol=lf

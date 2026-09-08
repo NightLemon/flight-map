@@ -17,8 +17,10 @@ import re
 import shutil
 import tempfile
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 REVISION = "269b3557e2c784cc41673b77c7fae211d3f61668"
@@ -64,6 +66,139 @@ REQUIRED_COLUMNS = {
     "navaids.csv": {"id", "ident", "name", "type", "latitude_deg", "longitude_deg"},
 }
 REFERENCE_CATALOG = Path(__file__).resolve().parents[1] / "reference-sources" / "catalog.json"
+REVIEW_CATALOG = REFERENCE_CATALOG.with_name("ourairports-review.json")
+EXPORT_SCHEMA = 3
+
+# These are source type labels, not frequency-value ranges. Unknown labels are
+# intentionally retained as unclassified, including generic MISC/VHF/MIL types.
+COMMUNICATION_SERVICES = frozenset(
+    [
+        "TWR",
+        "TOWER",
+        "LCL",
+        "GND",
+        "GROUND",
+        "GNDC",
+        "APP",
+        "APPR",
+        "APCH",
+        "APPROACH",
+        "DEP",
+        "DEPARTURE",
+        "ARR",
+        "ARRIVAL",
+        "ATIS",
+        "AWOS",
+        "ASOS",
+        "AWIB",
+        "AWIS",
+        "VOLMET",
+        "WEATHER",
+        "CLD",
+        "DEL",
+        "DCL",
+        "CD",
+        "DLV",
+        "DELIVERY",
+        "CTAF",
+        "UNIC",
+        "UNICOM",
+        "MULT",
+        "MULTICOM",
+        "AFIS",
+        "ATF",
+        "MF",
+        "ACC",
+        "CNTR",
+        "CENTER",
+        "CENTRE",
+        "CTR",
+        "ARTC",
+        "RDO",
+        "RADIO",
+        "RCO",
+        "FSS",
+        "RFSS",
+        "FIS",
+        "INFO",
+        "INFORMATION",
+        "TIBA",
+        "AAS",
+        "A/G",
+        "A/A",
+        "A/D",
+        "OPS",
+        "PMSV",
+        "PTD",
+        "RDR",
+        "RADAR",
+        "RAD",
+        "GCA",
+        "DIR",
+        "RMP",
+        "TCA",
+        "ACP",
+        "EMR",
+        "EMERG",
+        "EMERGENCY",
+        "GCCD",
+        "FCC",
+        "SMC",
+        "GCO",
+        "ATC",
+        "ATS",
+        "TFC",
+        "SAFETYCOM",
+    ]
+)
+NAVIGATION_SERVICES = frozenset(["ILS", "LOC", "GP", "GS", "VOR", "NDB", "DME", "TACAN"])
+FREQUENCY_COLLECTIONS = {
+    "communication": "communications",
+    "navigation": "navigation_frequencies",
+    "unclassified": "unclassified_frequencies",
+}
+
+
+def frequency_category(service: str | None) -> str:
+    """Classify only explicit source labels; never infer a service from MHz.
+
+    The complete-label whitelist handles established OA/FAA-style labels. The
+    bounded variants handle numbered services, ATIS directions, known station
+    prefixes, and runway/nav labels. A navigation and voice mixture stays unknown.
+    """
+    label = " ".join((service or "").upper().split())
+    if not label:
+        return "unclassified"
+    tokens = re.findall(r"[A-Z]+", label)
+    has_navigation = bool(NAVIGATION_SERVICES.intersection(tokens))
+    has_communication = bool(COMMUNICATION_SERVICES.intersection(tokens))
+    if has_navigation and has_communication:
+        return "unclassified"
+    if label in COMMUNICATION_SERVICES or label in {"CLNC DEL", "CLEARANCE DELIVERY"}:
+        return "communication"
+    # Do not match arbitrary substrings (e.g. HAPPY or APPLIANCE) as APP.
+    if re.fullmatch(r"(?:TWR|GND|APP|APPR|DEP|CLD|DEL|DCL)\d{1,2}", label):
+        return "communication"
+    if re.fullmatch(r"ATIS(?:[- /](?:I|O|ARR|DEP)){1,2}", label):
+        return "communication"
+    if label == "WUHAI TWR" or re.fullmatch(r"[A-Z]{4}_(?:TWR|GND|APP)", label):
+        return "communication"
+    parts = re.split(r"\s*[/&+]\s*", label)
+    if len(parts) > 1 and all(part in COMMUNICATION_SERVICES for part in parts):
+        return "communication"
+    if has_navigation:
+        nav = "(?:" + "|".join(sorted(NAVIGATION_SERVICES)) + ")"
+        nav_group = rf"{nav}(?:\s*[/&+\-]\s*{nav})*"
+        runway = r"\d{1,2}[LRC]?(?:/\d{1,2}[LRC]?)?"
+        # Runway selectors and short station identifiers qualify explicit nav
+        # labels, e.g. RWY 13 ILS, WUA VOR/DME, ILS RWY14, and ILS - IEN.
+        if re.fullmatch(
+            rf"(?:(?:RWY\s*{runway}|[A-Z]{{2,5}})\s+(?:-\s*)?)?"
+            rf"{nav_group}(?:\s+(?:(?:RWY|RW)\s*)?{runway})?",
+            label,
+        ) or re.fullmatch(rf"{nav_group}\s*-\s*[A-Z0-9]{{2,5}}", label):
+            return "navigation"
+    return "unclassified"
 
 
 def compact_json(value: Any) -> str:
@@ -370,10 +505,14 @@ def runway_properties(row: dict[str, str]) -> dict[str, Any]:
             "lighted",
             "closed",
             "le_ident",
+            "le_latitude_deg",
+            "le_longitude_deg",
             "le_elevation_ft",
             "le_heading_degT",
             "le_displaced_threshold_ft",
             "he_ident",
+            "he_latitude_deg",
+            "he_longitude_deg",
             "he_elevation_ft",
             "he_heading_degT",
             "he_displaced_threshold_ft",
@@ -427,6 +566,152 @@ def load_reference_sources(catalog_path: Path) -> list[dict[str, Any]]:
             raise ValueError("reference snapshot count mismatch")
         result.append({**source, "records": rows})
     return result
+
+
+def review_date(value: Any) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def review_url(value: Any) -> bool:
+    if not isinstance(value, str) or re.search(r"[\s\x00-\x1f\x7f\\]", value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and (parsed.port is None or 0 < parsed.port <= 65535)
+        )
+    except ValueError:
+        return False
+
+
+def validate_review_catalog(catalog: Any, revision: str = REVISION) -> None:
+    """Reject unrecognized review fields and unsafe changes before export."""
+    keys = {"schema", "source_revision", "reviewed_at", "corrections", "notes"}
+    if not isinstance(catalog, dict) or set(catalog) != keys or type(catalog["schema"]) is not int:
+        raise ValueError("invalid review catalog schema fields")
+    if catalog["schema"] != 1:
+        raise ValueError("unsupported review catalog schema")
+    if revision != REVISION or catalog["source_revision"] != revision:
+        raise ValueError("review source_revision mismatch with pinned source")
+    if not review_date(catalog["reviewed_at"]):
+        raise ValueError("invalid review reviewed_at date")
+    entry_keys = {
+        "id",
+        "airport_id",
+        "record_id",
+        "field",
+        "original_value",
+        "status",
+        "message",
+        "evidence",
+    }
+    seen = set()
+    corrected_fields = set()
+    for group in ("corrections", "notes"):
+        entries = catalog[group]
+        if not isinstance(entries, list):
+            raise ValueError(f"review {group} must be an array")
+        for entry in entries:
+            expected_keys = entry_keys | ({"value"} if group == "corrections" else set())
+            if not isinstance(entry, dict) or set(entry) != expected_keys:
+                raise ValueError("invalid review entry fields")
+            for key in ("id", "airport_id", "record_id", "field", "status", "message"):
+                if not isinstance(entry[key], str) or not entry[key].strip():
+                    raise ValueError(f"invalid review entry {key}")
+            if entry["id"] in seen:
+                raise ValueError("duplicate review entry id")
+            seen.add(entry["id"])
+            if not re.fullmatch(r"ourairports:airport:\d+", entry["airport_id"]):
+                raise ValueError("invalid review airport_id")
+            field_kind = {
+                "name": "airport",
+                "properties.scheduled_service": "airport",
+                "properties.length_ft": "runway",
+            }
+            kind = field_kind.get(entry["field"])
+            if kind is None or not re.fullmatch(rf"ourairports:{kind}:\d+", entry["record_id"]):
+                raise ValueError("unsupported review field or record kind")
+            if entry["original_value"] is not None and not isinstance(entry["original_value"], str):
+                raise ValueError("invalid review original_value")
+            expected_status = "corrected" if group == "corrections" else "needs_review"
+            if entry["status"] != expected_status:
+                raise ValueError("invalid review entry status")
+            if group == "corrections":
+                if entry["field"] != "name":
+                    raise ValueError("only airport name corrections are supported")
+                if not isinstance(entry["value"], str) or not entry["value"].strip():
+                    raise ValueError("invalid review correction value")
+                target = (entry["record_id"], entry["field"])
+                if target in corrected_fields:
+                    raise ValueError("duplicate review correction target")
+                corrected_fields.add(target)
+            if not isinstance(entry["evidence"], list) or not entry["evidence"]:
+                raise ValueError("review evidence must be a nonempty array")
+            for evidence in entry["evidence"]:
+                if not isinstance(evidence, dict) or set(evidence) != {
+                    "title",
+                    "url",
+                    "published_at",
+                }:
+                    raise ValueError("invalid review evidence fields")
+                if not isinstance(evidence["title"], str) or not evidence["title"].strip():
+                    raise ValueError("invalid review evidence title")
+                if not review_url(evidence["url"]):
+                    raise ValueError("unsafe review evidence URL")
+                if not review_date(evidence["published_at"]):
+                    raise ValueError("invalid review evidence published_at date")
+
+
+def load_review_catalog(catalog_path: Path, revision: str = REVISION) -> dict[str, Any]:
+    catalog = json.loads(catalog_path.read_bytes())
+    validate_review_catalog(catalog, revision)
+    return catalog
+
+
+def apply_review_catalog(
+    catalog: dict[str, Any] | None,
+    airports: dict[str, dict[str, Any]],
+    runways: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Match every original value before applying the narrowly allowed changes."""
+    if catalog is None:
+        return {}
+    records = {**airports, **{item["id"]: item for item in runways}}
+    if len(records) != len(airports) + len(runways):
+        raise ValueError("review record ids are ambiguous")
+    entries = [*catalog["corrections"], *catalog["notes"]]
+    for entry in entries:
+        item = records.get(entry["record_id"])
+        if entry["airport_id"] not in airports or item is None:
+            raise ValueError(f"review record not found: {entry['id']}")
+        airport_id = item["id"] if item["kind"] == "airport" else item["airport_id"]
+        if airport_id != entry["airport_id"]:
+            raise ValueError(f"review airport association mismatch: {entry['id']}")
+        original = item
+        for key in entry["field"].split("."):
+            if not isinstance(original, dict) or key not in original:
+                raise ValueError(f"review field not found: {entry['id']}")
+            original = original[key]
+        if original != entry["original_value"]:
+            raise ValueError(f"review original_value mismatch: {entry['id']}")
+    for correction in catalog["corrections"]:
+        item = records[correction["record_id"]]
+        item["properties"]["original_name"] = item["name"]
+        item["name"] = correction["value"]
+    notes: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries:
+        notes[entry["airport_id"]].append({**entry, "reviewed_at": catalog["reviewed_at"]})
+    return dict(notes)
 
 
 def distance_km(a: list[float], b: list[float]) -> float:
@@ -509,10 +794,23 @@ def build(
     revision: str = REVISION,
     inputs: list[dict[str, str]] | None = None,
     reference_sources: list[dict[str, Any]] | None = None,
+    review_catalog: Path | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an immutable version directory from local CSV paths and return its manifest."""
     if set(source_paths) != set(INPUT_NAMES):
         raise ValueError("source paths must contain exactly the four CSV files and LICENSE")
+    # File-backed catalogs preserve exact reviewed bytes; dictionaries are useful
+    # for synthetic callers and use canonical JSON bytes. No implicit live review.
+    review_bytes = None
+    review = None
+    if review_catalog is not None:
+        review_bytes = (
+            review_catalog.read_bytes()
+            if isinstance(review_catalog, Path)
+            else compact_json(review_catalog).encode("utf-8")
+        )
+        review = json.loads(review_bytes)
+        validate_review_catalog(review, revision)
     for name, path in source_paths.items():
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"missing or empty input: {name}")
@@ -566,7 +864,9 @@ def build(
             line=line,
             digest=input_hashes["airports.csv"],
         )
-    communications: list[dict[str, Any]] = []
+    frequencies: dict[str, list[dict[str, Any]]] = {
+        collection: [] for collection in FREQUENCY_COLLECTIONS.values()
+    }
     for line, row in rows["airport-frequencies.csv"]:
         source_id = required_id(row, "airport-frequencies.csv", line)
         parent_source_id = text(row, "airport_ref")
@@ -575,7 +875,8 @@ def build(
             if parent_source_id and parent_source_id.isdecimal()
             else None
         )
-        communications.append(
+        category = frequency_category(text(row, "type"))
+        frequencies[FREQUENCY_COLLECTIONS[category]].append(
             record(
                 record_id=f"ourairports:communication:{source_id}",
                 kind="communication",
@@ -590,6 +891,7 @@ def build(
                     "frequency": text(row, "frequency_mhz"),
                     "unit": "MHz",
                     "remarks": text(row, "description"),
+                    "frequency_category": category,
                 },
                 source_name="airport-frequencies.csv",
                 line=line,
@@ -646,12 +948,14 @@ def build(
                 digest=input_hashes["navaids.csv"],
             )
         )
+    review_notes = apply_review_catalog(review, airports, runways)
     by_airport: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: {"communications": [], "runways": []}
+        lambda: {**{collection: [] for collection in frequencies}, "runways": []}
     )
-    for item in communications:
-        if item["airport_id"]:
-            by_airport[item["airport_id"]]["communications"].append(item)
+    for collection, items in frequencies.items():
+        for item in items:
+            if item["airport_id"]:
+                by_airport[item["airport_id"]][collection].append(item)
     for item in runways:
         if item["airport_id"]:
             by_airport[item["airport_id"]]["runways"].append(item)
@@ -666,7 +970,10 @@ def build(
             x, y = tile_index(item["geometry"]["coordinates"])
             tile_data["airports"][f"{x}-{y}"].append(point_feature(item))
             visible_airports.append(item)
+    visible_airport_ids = {item["id"] for item in visible_airports}
     for item in runways:
+        if item["airport_id"] not in visible_airport_ids or item["properties"].get("closed") == "1":
+            continue
         for key, features in runway_tile_features(item).items():
             tile_data["runways"][key].extend(features)
     visible_navaids = [item for item in navaids if item["geometry"]]
@@ -686,13 +993,14 @@ def build(
     dataset_revision = hashlib.sha256(
         compact_json(
             {
-                "export_schema": 2,
+                "export_schema": EXPORT_SCHEMA,
                 "ourairports_revision": revision,
                 "inputs": input_entries,
                 "references": [
                     {key: value for key, value in source.items() if key != "records"}
                     for source in reference_sources
                 ],
+                "review_sha256": hashlib.sha256(review_bytes).hexdigest() if review_bytes else None,
             }
         ).encode()
     ).hexdigest()[:40]
@@ -707,6 +1015,7 @@ def build(
                 "country": country,
                 "airports": 0,
                 "airports_with_communications": 0,
+                "airports_with_frequencies": 0,
                 "runways": 0,
                 "navaids": 0,
                 "enriched_airports": 0,
@@ -715,6 +1024,7 @@ def build(
         entry["airports"] += 1
         related = by_airport[airport["id"]]
         entry["airports_with_communications"] += bool(related["communications"])
+        entry["airports_with_frequencies"] += any(related[key] for key in frequencies)
         entry["runways"] += len(related["runways"])
         entry["enriched_airports"] += bool(references.get(airport["id"]))
     for navaid in visible_navaids:
@@ -768,17 +1078,36 @@ def build(
             ],
         ],
         "reference_reports": reference_reports,
+        "review": (
+            {
+                "reviewed_at": review["reviewed_at"],
+                "source_revision": review["source_revision"],
+                "sha256": hashlib.sha256(review_bytes).hexdigest(),
+                "correction_count": len(review["corrections"]),
+                "note_count": len(review["notes"]),
+            }
+            if review is not None
+            else None
+        ),
         "counts": {
             "airports": len(visible_airports),
             "runways": sum(len(value) for value in tile_data["runways"].values()),
             "navaids": len(visible_navaids),
-            "communications": len(communications),
+            **{collection: len(items) for collection, items in frequencies.items()},
         },
         "source_counts": {
             "airports": len(airports),
             "runways": len(runways),
             "navaids": len(navaids),
-            "communications": len(communications),
+            "communications": len(rows["airport-frequencies.csv"]),
+        },
+        "count_semantics": {
+            "source_counts.communications": "All airport-frequencies.csv rows, all categories",
+            "counts.communications": "Source frequency rows classified as voice communication",
+            "counts.runways": "Map features including repeated runway features across tiles",
+            "coverage.runways": "All source runway detail rows attached to visible airports",
+            "coverage.airports_with_communications": "Visible airports with voice communications",
+            "coverage.airports_with_frequencies": "Visible airports with any source frequency rows",
         },
         "tiles": tile_names,
         "disclaimer": (
@@ -817,6 +1146,7 @@ def build(
                         alias.strip()
                         for alias in [
                             *(item["properties"].get("keywords") or "").split(","),
+                            item["properties"].get("original_name", ""),
                             *(
                                 name
                                 for ref in references.get(item["id"], [])
@@ -848,13 +1178,19 @@ def build(
             related = by_airport[airport_id]
             buckets[source_id % 256][airport_id] = {
                 "airport": airport,
-                "communications": sorted(related["communications"], key=lambda value: value["id"]),
+                **{
+                    collection: sorted(related[collection], key=lambda value: value["id"])
+                    for collection in frequencies
+                },
                 "runways": sorted(related["runways"], key=lambda value: value["id"]),
                 "references": references.get(airport_id, []),
+                "review_notes": review_notes.get(airport_id, []),
             }
         for bucket, values in buckets.items():
             write_json(version_dir / "airports" / f"{bucket}.json", values)
         shutil.copyfile(source_paths["LICENSE"], version_dir / "LICENSE")
+        if review_bytes is not None:
+            (version_dir / "review.json").write_bytes(review_bytes)
         write_json(
             version_dir / "sources.json",
             {
@@ -893,7 +1229,7 @@ def main() -> None:
     args = parser.parse_args()
     paths, inputs = acquire_inputs(args.cache)
     references = load_reference_sources(REFERENCE_CATALOG)
-    manifest = build(paths, args.output, REVISION, inputs, references)
+    manifest = build(paths, args.output, REVISION, inputs, references, REVIEW_CATALOG)
     print(
         compact_json(
             {"output": str(args.output), "revision": REVISION, "counts": manifest["counts"]}

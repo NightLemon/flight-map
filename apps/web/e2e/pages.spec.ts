@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { expect, test, type Page } from '@playwright/test'
 
 // Only the background imagery is synthetic; reference data is the real pinned export.
@@ -122,6 +123,73 @@ test('mobile keeps the compact controls, map and airport frequencies reachable',
   await expect(page.getByLabel('机场通信频率').getByText(/MHz/).first()).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/pages-mobile.png', fullPage: true })
+})
+
+test('reviewed export preserves source values and excludes closed runway geometry from map tiles', async ({ request }) => {
+  const manifestResponse = await request.get('reference/manifest.json')
+  expect(manifestResponse.ok()).toBe(true)
+  const manifest = await manifestResponse.json()
+  const root = `reference/${manifest.dataset_revision}`
+  const reviewBytes = readFileSync(new URL('../../../reference-sources/ourairports-review.json', import.meta.url))
+  expect(manifest.review.sha256).toBe(createHash('sha256').update(reviewBytes).digest('hex'))
+  const reviewResponse = await request.get(`${root}/review.json`)
+  expect(reviewResponse.ok()).toBe(true)
+  expect(await reviewResponse.json()).toEqual(JSON.parse(reviewBytes.toString('utf-8')))
+  const detail = async (id: number) => {
+    const response = await request.get(`${root}/airports/${id % 256}.json`)
+    expect(response.ok()).toBe(true)
+    return (await response.json())[`ourairports:airport:${id}`]
+  }
+  const bozhou = await detail(525151)
+  expect(bozhou.airport.name).toBe('Bozhou Airport')
+  expect(bozhou.airport.properties.original_name).toBe('Bozhou Airport (under construction)')
+  expect(bozhou.airport.properties.scheduled_service).toBe('no')
+  expect(bozhou.communications).toEqual([])
+  expect(bozhou.runways).toEqual([])
+  expect(bozhou.review_notes.some((note: { status: string; field: string }) => note.status === 'corrected' && note.field === 'name')).toBe(true)
+  const cnResponse = await request.get(`${root}/search/CN.json`)
+  expect(cnResponse.ok()).toBe(true)
+  const cn = await cnResponse.json()
+  expect(cn.find((airport: { id: string }) => airport.id === bozhou.airport.id).name).toBe('Bozhou Airport')
+  expect(cn.some((airport: { id: string }) => airport.id === 'ourairports:airport:27224')).toBe(false)
+
+  for (const [airportId, runwayId] of [[27224, 235198], [27189, 235184]]) {
+    const airport = await detail(airportId)
+    const runway = airport.runways.find((item: { id: string }) => item.id === `ourairports:runway:${runwayId}`)
+    expect(runway).toBeDefined() // Source history and geometry remain available in detail.
+    expect(runway.geometry.type).toBe('LineString')
+    const [longitude, latitude] = runway.geometry.coordinates[0]
+    const tile = `${Math.floor((longitude + 180) / 5)}-${Math.floor((latitude + 90) / 5)}`
+    if (manifest.tiles.runways.includes(tile)) {
+      const response = await request.get(`${root}/tiles/runways/${tile}.json`)
+      expect(response.ok()).toBe(true)
+      const features = (await response.json()).features
+      expect(features.some((item: { id: string }) => item.id === runway.id)).toBe(false)
+    }
+  }
+  const wuhai = await detail(308728)
+  expect(wuhai.navigation_frequencies).toHaveLength(3)
+  expect(wuhai.navigation_frequencies.find((item: { properties: { service: string } }) => item.properties.service === 'GP 19').properties.frequency).toBe('329.3')
+  expect(wuhai.communications.every((item: { properties: { frequency_category: string } }) => item.properties.frequency_category === 'communication')).toBe(true)
+  const ordos = await detail(300513)
+  expect(ordos.navigation_frequencies).toHaveLength(5)
+  expect(manifest.counts.communications + manifest.counts.navigation_frequencies + manifest.counts.unclassified_frequencies).toBe(manifest.source_counts.communications)
+})
+
+test('airport review details distinguish corrected names, missing data and navigation frequencies', async ({ page }) => {
+  await page.goto('./')
+  await search(page, 'CN-0413')
+  await expect(page.locator('.entity-name')).toContainText('Bozhou Airport')
+  await expect(page.locator('.entity-name')).not.toContainText('under construction')
+  await expect(page.getByLabel('机场概览')).toContainText('ZSBO')
+  await expect(page.getByLabel('机场通信频率')).toContainText('来源未收录语音通信频率')
+  await expect(page.getByLabel('资料核查记录')).toBeAttached()
+  await expect(page.getByLabel('资料完整性')).toBeAttached()
+  await search(page, 'ZBUH')
+  await expect(page.getByLabel('导航频率参考')).toContainText('329.3')
+  await expect(page.getByLabel('机场通信频率')).not.toContainText('329.3')
+  await search(page, 'ZBHH')
+  await expect(page.getByLabel('跑道', { exact: true })).toContainText('来源标为关闭')
 })
 
 test.describe('phone map gestures', () => {

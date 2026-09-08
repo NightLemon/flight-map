@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import gzip
 import hashlib
 import importlib.util
@@ -17,6 +18,7 @@ SPEC.loader.exec_module(pages)
 
 
 def write_sources(root: Path, airport_latitude: str = "NaN") -> dict[str, Path]:
+    # Entirely synthetic inputs; no official aeronautical records are fixtures.
     contents = {
         "airports.csv": "\n".join(
             [
@@ -67,7 +69,14 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
     manifest = pages.build(paths, first)
     pages.build(paths, second)
     revision = manifest["dataset_revision"]
-    assert manifest["counts"] == {"airports": 1, "runways": 2, "navaids": 1, "communications": 1}
+    assert manifest["counts"] == {
+        "airports": 1,
+        "runways": 2,
+        "navaids": 1,
+        "communications": 1,
+        "navigation_frequencies": 0,
+        "unclassified_frequencies": 0,
+    }
     assert manifest["source_counts"] == {
         "airports": 3,
         "runways": 2,
@@ -102,6 +111,10 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
     assert bucket["communications"][0]["parent_id"] == "ourairports:airport:1"
     assert bucket["communications"][0]["properties"]["frequency"] == "122.8"
     assert bucket["runways"][1]["geometry"] is None
+    assert bucket["navigation_frequencies"] == bucket["unclassified_frequencies"] == []
+    assert bucket["review_notes"] == []
+    assert manifest["review"] is None
+    assert not (first / revision / "review.json").exists()
     assert not any("C:" in value.read_text(encoding="utf-8") for value in first.rglob("*.json"))
     assert {path.relative_to(first) for path in first.rglob("*") if path.is_file()} == {
         path.relative_to(second) for path in second.rglob("*") if path.is_file()
@@ -197,6 +210,7 @@ def test_country_indexes_cover_the_visible_airports_and_count_frequency_gaps(
             "country": "US",
             "airports": 1,
             "airports_with_communications": 1,
+            "airports_with_frequencies": 1,
             "runways": 2,
             "navaids": 1,
             "enriched_airports": 0,
@@ -358,3 +372,430 @@ def test_wikidata_normalization_reproduces_frozen_snapshot_from_raw_inputs() -> 
     assert module.normalize(read("airports.json.gz"), read("countries.json.gz")) == read(
         "records.json.gz"
     )
+
+
+def replace_csv(path: Path, rows: list[dict]) -> None:
+    """Write synthetic test rows, retaining all supplied raw columns."""
+    fieldnames = list(dict.fromkeys(key for row in rows for key in row))
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def read_detail(output: Path, manifest: dict, airport_id: int = 1) -> dict:
+    bucket = output / manifest["dataset_revision"] / "airports" / f"{airport_id % 256}.json"
+    return json.loads(bucket.read_text(encoding="utf-8"))[f"ourairports:airport:{airport_id}"]
+
+
+def test_closed_and_nonvisible_parent_runways_stay_in_details_but_never_on_map(
+    tmp_path: Path,
+) -> None:
+    paths = write_sources(tmp_path / "input")
+    original = dict(pages.csv_rows(paths["runways.csv"])[0][1])
+    runways = [
+        {**original, "id": "7", "closed": "0"},
+        {**original, "id": "8", "closed": "1"},
+        {**original, "id": "9", "airport_ref": "2", "airport_ident": "CLOSE", "closed": "0"},
+        {**original, "id": "10", "airport_ref": "999", "airport_ident": "MISSING"},
+        {**original, "id": "11", "airport_ref": "3", "airport_ident": "BAD"},
+        {**original, "id": "12", "airport_ref": "", "airport_ident": "NONE"},
+    ]
+    replace_csv(paths["runways.csv"], runways)
+    output = tmp_path / "out"
+    manifest = pages.build(paths, output)
+    version = output / manifest["dataset_revision"]
+    features = [
+        feature
+        for tile in (version / "tiles/runways").glob("*.json")
+        for feature in json.loads(tile.read_text(encoding="utf-8"))["features"]
+    ]
+    assert {feature["id"] for feature in features} == {"ourairports:runway:7"}
+    assert manifest["counts"]["runways"] == 2  # The original date-line tile repetition.
+    assert manifest["source_counts"]["runways"] == 6
+    assert manifest["coverage"][0]["runways"] == 2  # Includes the closed source detail.
+    detail = read_detail(output, manifest)
+    assert [runway["id"] for runway in detail["runways"]] == [
+        "ourairports:runway:7",
+        "ourairports:runway:8",
+    ]
+    active, closed = detail["runways"]
+    assert closed["properties"]["closed"] == "1"
+    assert active["geometry"] == closed["geometry"] == features[0]["geometry"]
+    for key in ("le_latitude_deg", "le_longitude_deg", "he_latitude_deg", "he_longitude_deg"):
+        assert active["properties"][key] == closed["properties"][key] == original[key]
+    closed_parent = read_detail(output, manifest, 2)
+    assert closed_parent["airport"]["properties"]["type"] == "closed"
+    assert closed_parent["runways"][0]["geometry"] == active["geometry"]
+    assert read_detail(output, manifest, 3)["runways"][0]["geometry"] == active["geometry"]
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        "TWR",
+        "TOWER",
+        "TWR01",
+        "WuHai TWR",
+        "ZUPL_TWR",
+        "APP",
+        "APPR",
+        "GND01",
+        "ATIS-I",
+        "ATIS-O",
+        "ATIS-I/O",
+        "ATIS DEP",
+        "CLD",
+        "DEL",
+        "DCL",
+        "CTAF",
+        "UNIC",
+        "AWOS",
+        "ASOS",
+        "AFIS",
+        "A/D",
+        "A/G",
+        "APP/DEP",
+        "RCO",
+        "RDO",
+        "PMSV",
+        "CLNC DEL",
+        "LCL",
+        "  twr  ",
+    ],
+)
+def test_explicit_communication_source_types(service: str) -> None:
+    assert pages.frequency_category(service) == "communication"
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        "ILS",
+        "LOC",
+        "GP",
+        "GS",
+        "VOR",
+        "NDB",
+        "DME",
+        "TACAN",
+        "GP 19",
+        "LOC 19",
+        "RWY 13 DME",
+        "RWY 31 ILS",
+        "WUA VOR/DME",
+        "ILS/DME",
+        "VOR/TACAN",
+        "VOR-DME",
+        "ABC VOR-DME",
+        "ABC - VOR",
+        "ILS - XYZ",
+        "ILS Rw 32/14",
+        "ILS RWY14",
+        "ILS RWY 32",
+        "ILS RW27",
+    ],
+)
+def test_explicit_navigation_source_types(service: str) -> None:
+    assert pages.frequency_category(service) == "navigation"
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        None,
+        "",
+        "MISC",
+        "VHF",
+        "APPLES",
+        "HAPPY",
+        "APP UNKNOWN",
+        "AP01",
+        "APN01",
+        "ILS/TWR",
+        "APP/ILS",
+        "TWR ILS",
+        "VOR ATIS",
+        "ILS mystery",
+        "ALIEN VOR THING",
+        "ATIS/VOR",
+    ],
+)
+def test_unknown_and_conflicting_frequency_types_are_retained_as_unclassified(service: str) -> None:
+    assert pages.frequency_category(service) == "unclassified"
+
+
+def test_frequency_partition_preserves_ids_raw_values_provenance_and_total_rows(
+    tmp_path: Path,
+) -> None:
+    paths = write_sources(tmp_path / "input", airport_latitude="42")
+    values = [
+        ("5", "1", "OPEN", "WuHai TWR", "329.3"),  # Deliberately atypical synthetic MHz.
+        ("6", "1", "OPEN", "LOC 19", "118.000"),
+        ("7", "1", "OPEN", "VOR/DME", "113.20"),
+        ("8", "1", "OPEN", "ILS/TWR", "121.7"),
+        ("9", "1", "OPEN", "APPLIANCE", "not-a-number"),
+        ("10", "2", "CLOSE", "TWR", "121.7"),
+        ("11", "3", "BAD", "NDB", "299"),
+        ("12", "3", "BAD", "UNKNOWN", ""),
+    ]
+    replace_csv(
+        paths["airport-frequencies.csv"],
+        [
+            {
+                "id": source_id,
+                "airport_ref": airport_ref,
+                "airport_ident": ident,
+                "type": service,
+                "description": f"Synthetic remark {source_id}",
+                "frequency_mhz": frequency,
+            }
+            for source_id, airport_ref, ident, service, frequency in values
+        ],
+    )
+    output = tmp_path / "out"
+    manifest = pages.build(paths, output)
+    expected_counts = {
+        "communications": 2,
+        "navigation_frequencies": 3,
+        "unclassified_frequencies": 3,
+    }
+    assert {key: manifest["counts"][key] for key in expected_counts} == expected_counts
+    assert (
+        sum(expected_counts.values()) == manifest["source_counts"]["communications"] == len(values)
+    )
+    coverage = manifest["coverage"][0]
+    assert coverage["airports_with_communications"] == 1
+    assert coverage["airports_with_frequencies"] == coverage["airports"] == 2
+    exported = {}
+    for airport_id in (1, 2, 3):
+        detail = read_detail(output, manifest, airport_id)
+        for category, collection in pages.FREQUENCY_COLLECTIONS.items():
+            for item in detail[collection]:
+                assert item["properties"]["frequency_category"] == category
+                assert item["id"] not in exported
+                exported[item["id"]] = item
+    assert len(exported) == len(values)
+    for line, (source_id, airport_ref, ident, service, frequency) in enumerate(values, 2):
+        item = exported[f"ourairports:communication:{source_id}"]
+        assert item["kind"] == "communication"
+        assert item["airport_id"] == item["parent_id"] == f"ourairports:airport:{airport_ref}"
+        assert item["airport_ident"] == ident
+        assert item["properties"]["service"] == service
+        assert item["properties"]["frequency"] == (frequency or None)
+        assert item["properties"]["unit"] == "MHz"
+        assert item["properties"]["remarks"] == f"Synthetic remark {source_id}"
+        assert item["provenance"] == {
+            "asset_sha256": pages.sha256_file(paths["airport-frequencies.csv"]),
+            "member": "airport-frequencies.csv",
+            "line": line,
+            "locator": f"airport-frequencies.csv:line:{line}",
+        }
+
+
+def synthetic_review() -> dict:
+    # Synthetic airport 1 and runway 7, with reserved example.invalid evidence.
+    return {
+        "schema": 1,
+        "source_revision": pages.REVISION,
+        "reviewed_at": "2026-09-08",
+        "corrections": [
+            {
+                "id": "synthetic-name",
+                "airport_id": "ourairports:airport:1",
+                "record_id": "ourairports:airport:1",
+                "field": "name",
+                "original_value": "Open",
+                "value": "Synthetic Bozhou Airport",
+                "status": "corrected",
+                "message": "Synthetic name correction only",
+                "evidence": [
+                    {
+                        "title": "Synthetic evidence",
+                        "url": "https://example.invalid/review",
+                        "published_at": "2026-09-01",
+                    }
+                ],
+            }
+        ],
+        "notes": [
+            {
+                "id": "synthetic-runway-review",
+                "airport_id": "ourairports:airport:1",
+                "record_id": "ourairports:runway:7",
+                "field": "properties.length_ft",
+                "original_value": "1000",
+                "status": "needs_review",
+                "message": "Synthetic mismatch; keep original dimensions and endpoints",
+                "evidence": [
+                    {
+                        "title": "Synthetic runway evidence",
+                        "url": "http://example.invalid/rwy",
+                        "published_at": "2026-09-02",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_review_name_correction_is_consistent_and_keeps_original_fields_and_exact_catalog(
+    tmp_path: Path,
+) -> None:
+    paths = write_sources(tmp_path / "input")
+    old_name = "Synthetic Bozhou Airport (under construction)"
+    paths["airports.csv"].write_text(
+        paths["airports.csv"].read_text(encoding="utf-8").replace(",Open,", f",{old_name},"),
+        encoding="utf-8",
+    )
+    review = synthetic_review()
+    review["corrections"][0]["original_value"] = old_name
+    review["notes"].append(
+        {
+            **review["notes"][0],
+            "id": "synthetic-airport-review",
+            "record_id": "ourairports:airport:1",
+            "field": "properties.scheduled_service",
+            "original_value": None,
+        }
+    )
+    catalog = tmp_path / "review.json"
+    raw = (json.dumps(review, ensure_ascii=False, indent=4) + "\n").encode("utf-8")
+    catalog.write_bytes(raw)
+    assert pages.load_review_catalog(catalog) == review
+    plain_output, output = tmp_path / "plain", tmp_path / "out"
+    plain = pages.build(paths, plain_output)
+    manifest = pages.build(paths, output, review_catalog=catalog)
+    assert manifest["review"] == {
+        "reviewed_at": "2026-09-08",
+        "source_revision": pages.REVISION,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "correction_count": 1,
+        "note_count": 2,
+    }
+    version = output / manifest["dataset_revision"]
+    assert (version / "review.json").read_bytes() == raw
+    detail = read_detail(output, manifest)
+    original = read_detail(plain_output, plain)
+    expected = review["corrections"][0]["value"]
+    assert detail["airport"]["name"] == expected
+    assert detail["airport"]["properties"]["original_name"] == old_name
+    assert detail["airport"]["provenance"] == original["airport"]["provenance"]
+    assert detail["airport"]["geometry"] == original["airport"]["geometry"]
+    assert detail["runways"] == original["runways"]
+    assert detail["communications"] == original["communications"]
+    assert detail["review_notes"] == [
+        {**entry, "reviewed_at": review["reviewed_at"]}
+        for entry in [*review["corrections"], *review["notes"]]
+    ]
+    for filename in ("search.json", "search/US.json"):
+        hit = json.loads((version / filename).read_text(encoding="utf-8"))[0]
+        assert hit["name"] == expected
+        assert old_name in hit["aliases"]
+    feature = json.loads(next((version / "tiles/airports").glob("*.json")).read_text())["features"][
+        0
+    ]
+    assert feature["properties"]["name"] == expected
+    assert feature["properties"]["original_name"] == old_name
+    assert plain["dataset_revision"] != manifest["dataset_revision"]
+
+
+@pytest.mark.parametrize(
+    "target,key,value,error",
+    [
+        ("catalog", "schema", 2, "schema"),
+        ("catalog", "schema", True, "schema"),
+        ("catalog", "source_revision", "0" * 40, "source_revision mismatch"),
+        ("catalog", "reviewed_at", "2026-02-30", "reviewed_at date"),
+        ("catalog", "reviewed_at", "2026-09-08T00:00:00Z", "reviewed_at date"),
+        ("catalog", "unknown", "value", "schema fields"),
+        ("correction", "original_value", "outdated value", "original_value mismatch"),
+        ("correction", "record_id", "ourairports:airport:999", "record not found"),
+        ("correction", "airport_id", "ourairports:airport:2", "association mismatch"),
+        ("correction", "field", "geometry.coordinates", "unsupported review field"),
+        ("correction", "field", "properties.scheduled_service", "only airport name"),
+        ("correction", "status", "needs_review", "status"),
+        ("correction", "extra", "unknown", "entry fields"),
+        ("note", "original_value", "2000", "original_value mismatch"),
+        ("note", "airport_id", "ourairports:airport:2", "association mismatch"),
+        ("note", "record_id", "ourairports:runway:999", "record not found"),
+        ("note", "value", "2000", "entry fields"),
+        ("evidence", "url", "javascript:alert(1)", "unsafe.*URL"),
+        ("evidence", "url", "file:///C:/private.txt", "unsafe.*URL"),
+        ("evidence", "url", "https://", "unsafe.*URL"),
+        ("evidence", "url", "https://example.invalid:bad/", "unsafe.*URL"),
+        ("evidence", "url", "https://user:password@example.invalid/", "unsafe.*URL"),
+        ("evidence", "url", "https://example.invalid/\n", "unsafe.*URL"),
+        ("evidence", "published_at", "2026-13-01", "published_at date"),
+        ("evidence", "extra", "unknown", "evidence fields"),
+    ],
+)
+def test_invalid_reviews_fail_before_output(
+    tmp_path: Path,
+    target: str,
+    key: str,
+    value: object,
+    error: str,
+) -> None:
+    paths = write_sources(tmp_path / "input")
+    review = synthetic_review()
+    entry = {
+        "catalog": review,
+        "correction": review["corrections"][0],
+        "note": review["notes"][0],
+        "evidence": review["corrections"][0]["evidence"][0],
+    }[target]
+    entry[key] = value
+    output = tmp_path / "out"
+    with pytest.raises(ValueError, match=error):
+        pages.build(paths, output, review_catalog=review)
+    assert not output.exists()
+
+
+def test_review_content_and_export_semantics_participate_in_dataset_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = write_sources(tmp_path / "input")
+    review = synthetic_review()
+    first = pages.build(paths, tmp_path / "first", review_catalog=review)
+    review["notes"][0]["message"] += " Updated synthetic review finding."
+    second = pages.build(paths, tmp_path / "second", review_catalog=review)
+    assert first["review"]["sha256"] != second["review"]["sha256"]
+    assert first["dataset_revision"] != second["dataset_revision"]
+    assert first["source"] == second["source"]
+    assert pages.EXPORT_SCHEMA == 3
+    monkeypatch.setattr(pages, "EXPORT_SCHEMA", 2)
+    previous_semantics = pages.build(paths, tmp_path / "previous", review_catalog=review)
+    assert previous_semantics["dataset_revision"] != second["dataset_revision"]
+
+
+@pytest.mark.parametrize("duplicate", ["entry_id", "correction_target", "source_record"])
+def test_ambiguous_reviews_fail_closed(tmp_path: Path, duplicate: str) -> None:
+    paths = write_sources(tmp_path / "input")
+    review = synthetic_review()
+    if duplicate == "entry_id":
+        review["notes"][0]["id"] = review["corrections"][0]["id"]
+    elif duplicate == "correction_target":
+        review["corrections"].append({**review["corrections"][0], "id": "another-correction"})
+    else:
+        row = pages.csv_rows(paths["runways.csv"])[0][1]
+        replace_csv(paths["runways.csv"], [row, {**row, "length_ft": "2000"}])
+    output = tmp_path / "out"
+    with pytest.raises(ValueError, match="duplicate review|review record ids are ambiguous"):
+        pages.build(paths, output, review_catalog=review)
+    assert not output.exists()
+
+
+def test_cli_supplies_checked_in_review_catalog_without_loading_it_for_synthetic_builds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = write_sources(tmp_path / "input")
+    calls = []
+    monkeypatch.setattr(pages, "acquire_inputs", lambda cache: (paths, []))
+    monkeypatch.setattr(pages, "load_reference_sources", lambda catalog: [])
+    monkeypatch.setattr(pages, "build", lambda *args: calls.append(args) or {"counts": {}})
+    monkeypatch.setattr("sys.argv", ["build_pages_data.py", "--output", str(tmp_path / "out")])
+    pages.main()
+    assert calls[0][-1] == pages.REVIEW_CATALOG

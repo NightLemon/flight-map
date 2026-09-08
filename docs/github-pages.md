@@ -10,7 +10,9 @@
 
 GitHub Pages 只能托管静态文件，不能运行本项目的 Python API、SQLite 或 PDF 校验代理。Pages 构建以 `VITE_PUBLIC_REFERENCE=true` 选择独立的 `PublicApp`。普通 `npm run dev` 与 `npm run build` 继续使用 FAA 本机研究入口。
 
-公开版包含 OurAirports 机场搜索、按视野加载的机场/跑道/导航台、点击机场自动读取频率和跑道详情。只有源文件中同时存在两端坐标的跑道才生成地图线；不按长度和方向推算缺失端点。源数据中的已关闭机场不进入公开机场层。
+公开版包含 OurAirports 机场搜索、按视野加载的机场/跑道/导航台、点击机场自动读取机场概览、频率、跑道详情和核查记录。只有源文件中同时存在两端坐标、父机场可显示且未标记关闭的跑道才生成普通地图线；不按长度和方向推算缺失端点。源数据中的已关闭机场不进入公开机场层。被过滤的跑道仍保留在详情中，源关闭标记明显区分。
+
+机场频率按来源用途分为语音通信、导航频率参考和未分类三组。原始频率、单位、用途及记录 ID 不变；相同 MHz 的不同用途记录不合并。`communications` 及其覆盖数仅表示语音分类，`navigation_frequencies`、`unclassified_frequencies` 分别保存另外两类；`airports_with_frequencies` 表示任一类别的频率覆盖。分类不认证数值的当前有效性。
 
 FAA 航点、航路、d-TPP PDF 和本机版本管理仍在本机版。公开界面持续标记社区来源、数据快照日期及非运行用途。上游提交时间不是 AIRAC 生效时间；30 天提示只是数据陈旧提醒，不声明官方有效期。
 
@@ -35,6 +37,7 @@ NASR/d-TPP 的已核实页面仅说明免费获取和下载，没有补足本项
 ```powershell
 npm ci
 python scripts/build_pages_data.py
+python scripts/audit_mainland_reference.py --expect-reviewed
 npm run build:pages
 npm run test:pages
 ```
@@ -46,6 +49,8 @@ npm run test:pages
 `.github/workflows/ci.yml` 在提交后运行 Python 与 Web 检查、原有浏览器回归、公开数据构建及 Pages 浏览器验证。只有 `main` 的推送或手动运行、且全部检查通过后才上传部署；Pull Request 不部署。GitHub Pages 使用 GitHub Actions 模式。
 
 数据固定在已核对的上游版本，不会每次构建静默跟随最新资料。更新时应更改生成器固定版本及对应输入校验值、重新核对来源和数据、完成测试后提交。没有配置无人审核的数据自动更新。
+
+项目勘误目录见 [ourairports-review.json](../reference-sources/ourairports-review.json) 与 [维护说明](../reference-sources/ourairports-review.md)。它绑定上游版本和预期原值，漂移时构建失败。目录哈希参与数据版本，原目录随静态数据公开；原始 CSV 保持不变。2026-09-08 首轮只修正亳州名称，另保留 7 项待核查记录，没有补写坐标或频率。修复前审计与本轮实施记录分别保存在 `docs/`，不覆盖历史基线。
 
 上线复测可以指定真实 URL：
 

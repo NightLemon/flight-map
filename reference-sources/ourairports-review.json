@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "source_revision": "269b3557e2c784cc41673b77c7fae211d3f61668",
+  "reviewed_at": "2026-09-08",
+  "corrections": [
+    {
+      "id": "bozhou-name-2026-09-08",
+      "airport_id": "ourairports:airport:525151",
+      "record_id": "ourairports:airport:525151",
+      "field": "name",
+      "original_value": "Bozhou Airport (under construction)",
+      "value": "Bozhou Airport",
+      "status": "corrected",
+      "message": "官方运营统计已收录亳州机场，名称中已过时的“建设中”描述已移除。本项仅修正名称，不认证定期航班、跑道或频率的当前状态。",
+      "evidence": [
+        {
+          "title": "民航华东局：2025年11月份机场运输生产情况，明确新增亳州机场",
+          "url": "https://www.caac.gov.cn/local/HDGLJ/HD_XXGK/HD_TJSJ/202512/t20251224_229555.html",
+          "published_at": "2025-12-24"
+        },
+        {
+          "title": "民航华东局：2026年7月机场吞吐量统计",
+          "url": "https://www.caac.gov.cn/local/HDGLJ/HD_XXGK/HD_TJSJ/202608/t20260824_231576.html",
+          "published_at": "2026-08-24"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "id": "lishui-scheduled-service-review",
+      "airport_id": "ourairports:airport:525774",
+      "record_id": "ourairports:airport:525774",
+      "field": "properties.scheduled_service",
+      "original_value": "no",
+      "status": "needs_review",
+      "message": "来源标记无定期服务，但官方年度及近期统计已收录运营活动。统计口径不同，定期服务标记待核查，保留来源原值。",
+      "evidence": [
+        {
+          "title": "民航华东局：2026年7月机场吞吐量统计",
+          "url": "https://www.caac.gov.cn/local/HDGLJ/HD_XXGK/HD_TJSJ/202608/t20260824_231576.html",
+          "published_at": "2026-08-24"
+        }
+      ]
+    },
+    {
+      "id": "barkol-scheduled-service-review",
+      "airport_id": "ourairports:airport:605890",
+      "record_id": "ourairports:airport:605890",
+      "field": "properties.scheduled_service",
+      "original_value": "no",
+      "status": "needs_review",
+      "message": "官方2025年公报列有巴里坤新通航记录，来源仍标记无定期服务。年度事件不能认证当前服务状态，保留原值并待核查。",
+      "evidence": [
+        {
+          "title": "民航局：2025年全国民用运输机场生产统计公报",
+          "url": "https://www.caac.gov.cn/XXGK/XXGK/TJSJ/202602/t20260226_230119.html",
+          "published_at": "2026-02-26"
+        }
+      ]
+    },
+    {
+      "id": "ruijin-scheduled-service-review",
+      "airport_id": "ourairports:airport:354722",
+      "record_id": "ourairports:airport:354722",
+      "field": "properties.scheduled_service",
+      "original_value": "no",
+      "status": "needs_review",
+      "message": "官方2025年吞吐量表已有赣州瑞金机场记录，来源标记无定期服务。吞吐量不等于定期航班属性，本项保留原值并待核查。",
+      "evidence": [
+        {
+          "title": "民航局：2025年全国民用运输机场生产统计公报及吞吐量表",
+          "url": "https://www.caac.gov.cn/XXGK/XXGK/TJSJ/202602/t20260226_230119.html",
+          "published_at": "2026-02-26"
+        }
+      ]
+    },
+    {
+      "id": "bozhou-scheduled-service-review",
+      "airport_id": "ourairports:airport:525151",
+      "record_id": "ourairports:airport:525151",
+      "field": "properties.scheduled_service",
+      "original_value": "no",
+      "status": "needs_review",
+      "message": "亳州机场已有官方运营统计，但来源定期服务标记仍为no。名称勘误不代表本字段已获认证，保留原值并待核查。",
+      "evidence": [
+        {
+          "title": "民航华东局：2026年7月机场吞吐量统计",
+          "url": "https://www.caac.gov.cn/local/HDGLJ/HD_XXGK/HD_TJSJ/202608/t20260824_231576.html",
+          "published_at": "2026-08-24"
+        }
+      ]
+    },
+    {
+      "id": "morin-dawa-runway-length-review",
+      "airport_id": "ourairports:airport:342426",
+      "record_id": "ourairports:runway:342427",
+      "field": "properties.length_ft",
+      "original_value": "3937",
+      "status": "needs_review",
+      "message": "来源长度3937 ft与来源端点球面距离约5051 ft不一致，超过本次审查阈值。尚未官方判错，保留长度和坐标，待核查测量定义与更新情况。",
+      "evidence": [
+        {
+          "title": "OurAirports固定快照：跑道342427原始长度与端点",
+          "url": "https://github.com/davidmegginson/ourairports-data/blob/269b3557e2c784cc41673b77c7fae211d3f61668/runways.csv#L14105",
+          "published_at": "2026-09-08"
+        }
+      ]
+    },
+    {
+      "id": "qiqihar-runway-length-review",
+      "airport_id": "ourairports:airport:27241",
+      "record_id": "ourairports:runway:235170",
+      "field": "properties.length_ft",
+      "original_value": "11811",
+      "status": "needs_review",
+      "message": "来源长度11811 ft与来源端点球面距离约8512 ft不一致，超过本次审查阈值。尚未官方判错，保留长度和坐标，待核查是否存在扩建或字段更新不同步。",
+      "evidence": [
+        {
+          "title": "OurAirports固定快照：跑道235170原始长度与端点",
+          "url": "https://github.com/davidmegginson/ourairports-data/blob/269b3557e2c784cc41673b77c7fae211d3f61668/runways.csv#L48222",
+          "published_at": "2026-09-08"
+        }
+      ]
+    },
+    {
+      "id": "shengle-opening-status-review",
+      "airport_id": "ourairports:airport:525766",
+      "record_id": "ourairports:airport:525766",
+      "field": "name",
+      "original_value": "Hohhot Shengle International Airport (under construction)",
+      "status": "needs_review",
+      "message": "2026年5月政府报道描述投运准备与综合演练，不能作为正式转场证明。当前建设/投用状态待正式公告核实，保留来源名称。",
+      "evidence": [
+        {
+          "title": "和林格尔县政府：盛乐机场综合演练与投运准备",
+          "url": "http://www.helin.gov.cn/ywdt/tpxw/202605/t20260520_2006604.html",
+          "published_at": "2026-05-20"
+        }
+      ]
+    }
+  ]
+}

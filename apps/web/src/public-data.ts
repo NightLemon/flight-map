@@ -11,8 +11,9 @@ export type PublicManifest = {
   counts: Record<string, number>
   tiles: Record<PublicLayer, string[]>
   disclaimer: string
-  coverage?: Array<{ country: string; airports: number; airports_with_communications: number; runways: number; navaids: number; enriched_airports: number }>
+  coverage?: Array<{ country: string; airports: number; airports_with_communications: number; airports_with_frequencies?: number; runways: number; navaids: number; enriched_airports: number }>
   sources?: Array<{ id: string; name: string; url: string; license: string; license_url: string; updated_at: string; date_kind?: 'retrieved_at' | 'updated_at'; scope: string; airport_count: number }>
+  review?: { reviewed_at: string; source_revision: string; sha256: string; correction_count: number; note_count: number } | null
 }
 export type AirportHit = {
   id: string; identifier: string; name: string; icao_id: string; iata_code: string
@@ -23,7 +24,15 @@ export type AirportReference = {
   source_id: string; source_name: string; url: string; record_id: string; name?: string; name_zh?: string
   icao_id: string; country: string; coordinates?: [number, number]; retrieved_at: string
 }
-export type AirportDetail = { airport: ResearchRecord; communications: ResearchRecord[]; runways: ResearchRecord[]; references?: AirportReference[] }
+export type ReviewNote = {
+  id: string; airport_id: string; record_id: string; field: string; original_value: string; value?: string
+  status: 'corrected' | 'needs_review'; message: string
+  evidence: Array<{ title: string; url: string; published_at?: string }>; reviewed_at: string
+}
+export type AirportDetail = {
+  airport: ResearchRecord; communications: ResearchRecord[]; runways: ResearchRecord[]; references?: AirportReference[]
+  navigation_frequencies?: ResearchRecord[]; unclassified_frequencies?: ResearchRecord[]; review_notes?: ReviewNote[]
+}
 
 const cache = new Map<string, unknown>()
 let manifest: PublicManifest | undefined
@@ -60,16 +69,21 @@ async function readJson<T>(path: string, signal?: AbortSignal, cached = true): P
 export async function loadPublicManifest(signal?: AbortSignal): Promise<PublicManifest> {
   const value = await readJson<PublicManifest>('manifest.json', signal, false)
   const coverageValid = value.coverage === undefined || (Array.isArray(value.coverage) && value.coverage.every((item) =>
-    /^[A-Z]{2}$/.test(item.country) && [item.airports, item.airports_with_communications, item.runways, item.navaids, item.enriched_airports]
+    /^[A-Z]{2}$/.test(item.country) && [item.airports, item.airports_with_communications, item.runways, item.navaids, item.enriched_airports,
+      ...(item.airports_with_frequencies === undefined ? [] : [item.airports_with_frequencies])]
       .every((count) => Number.isSafeInteger(count) && count >= 0)))
   const sourcesValid = value.sources === undefined || (Array.isArray(value.sources) && value.sources.every((item) =>
     typeof item.id === 'string' && typeof item.name === 'string' && typeof item.url === 'string'
     && (item.date_kind === undefined || item.date_kind === 'retrieved_at' || item.date_kind === 'updated_at')
     && Number.isSafeInteger(item.airport_count) && item.airport_count >= 0))
+  const reviewValid = value.review === undefined || value.review === null || (typeof value.review === 'object'
+    && Number.isFinite(Date.parse(value.review.reviewed_at)) && revisionPattern.test(value.review.source_revision)
+    && /^[a-f0-9]{64}$/.test(value.review.sha256) && [value.review.correction_count, value.review.note_count]
+      .every((count) => Number.isSafeInteger(count) && count >= 0))
   if (value.schema !== 1 || !revisionPattern.test(value.source?.revision ?? '')
     || (value.dataset_revision !== undefined && !revisionPattern.test(value.dataset_revision))
     || !Number.isFinite(Date.parse(value.source?.updated_at ?? ''))
-    || !coverageValid || !sourcesValid
+    || !coverageValid || !sourcesValid || !reviewValid
     || !['airports', 'runways', 'navaids'].every((layer) => Array.isArray(value.tiles?.[layer as PublicLayer])
       && value.tiles[layer as PublicLayer].every((key) => {
         const [x, y] = key.split('-').map(Number)
