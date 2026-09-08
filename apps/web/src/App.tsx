@@ -8,7 +8,7 @@ import {
   type SearchResult, type SnapshotEnvelope, type SnapshotFeatures, type SnapshotReport, type SnapshotStatus, type Source, type Status,
 } from './api'
 import { ResearchPanel } from './ResearchPanel'
-import { expired, MODE_NAMES, PRODUCT_NAMES, PRODUCTS, releaseKey, researchMode, sameChartCycle, selectedReleases, selectedSnapshot, snapshotChoices, utc, type Selection } from './session'
+import { expired, MODE_NAMES, PRODUCT_NAMES, PRODUCTS, releaseKey, researchMode, sameChartCycle, selectedReleases, selectedSnapshot, snapshotChartDate, snapshotChoices, utc, type Selection } from './session'
 import './App.css'
 
 const LAYERS: { id: Layer; name: string; product: string }[] = [
@@ -226,7 +226,9 @@ function App() {
         if (!payload.items.length) setResearchMessage('此版本没有该机场的已支持程序记录；航图目录覆盖独立显示。')
       }))
     } else setResearchMessage(cifp ? '该机场没有已确认的 ICAO 标识，无法关联 CIFP 程序。' : '尚无所选版本的 CIFP 矢量资料。')
-    if (dtpp && faa) {
+    if (record.snapshot_id && !snapshotChartDate(snapshot ?? undefined, dtpp)) {
+      setChartMessage('没有与机场官方日期相同的航图版本。请显式选择对应版本；不会搭配其他日期的 PDF。')
+    } else if (dtpp && faa) {
       setChartsLoading(true)
       requests.push(getJson<Envelope>(`/airports/${encodeURIComponent(faa)}/charts?${versionQuery(dtpp, mode)}`).then((payload) => {
         assertVersion(payload, dtpp, mode)
