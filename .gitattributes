@@ -1,0 +1,2 @@
+# PDF xref byte offsets must survive Windows checkout unchanged.
+tests/fixtures/synthetic-two-page.pdf binary
