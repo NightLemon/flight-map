@@ -72,13 +72,6 @@ test('date research → airport → branch → rendered PDF, zoom, split, failur
   expect((await page.getByLabel('航空资料地图', { exact: true }).boundingBox())!.width).toBeLessThan(mapWidth)
   await expect(canvas).toHaveAttribute('data-rendered', 'true')
   await page.screenshot({ path: 'test-results/research-desktop.png', fullPage: true })
-  await page.setViewportSize({ width: 600, height: 900 })
-  await expect(divider).toBeHidden()
-  await expect(canvas).toHaveAttribute('data-rendered', 'true')
-  await canvas.scrollIntoViewIfNeeded()
-  expect((await canvas.boundingBox())!.width).toBeLessThan(600)
-  await page.screenshot({ path: 'test-results/research-narrow.png', fullPage: true })
-  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('button', { name: /SYNTHETIC UNAVAILABLE PDF/ }).click()
   await expect(page.getByText('Synthetic official service timeout (504)')).toBeVisible()
   await expect(page.getByText('API 已连接')).toBeVisible()
@@ -101,4 +94,67 @@ test('offline API leaves reference map and retry action without sample aviation 
   await expect(page.getByRole('button', { name: '重试', exact: true })).toBeVisible()
   await expect(page.getByLabel('搜索结果')).toHaveCount(0)
   await page.screenshot({ path: 'test-results/empty-desktop.png', fullPage: true })
+})
+
+test('519×642 wheel and keyboard reach the research desk and PDF controls without programmatic scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 519, height: 642 })
+  await page.route('https://aeronav.faa.gov/**', (route) => route.abort())
+  await page.route('**/api/v1/**', async (route) => {
+    const url = new URL(route.request().url())
+    const envelope = { snapshot_id: url.searchParams.get('snapshot_id'), release_id: url.searchParams.get('release_id'), mode: url.searchParams.get('mode') }
+    if (url.pathname.endsWith('/pdf')) {
+      await route.fulfill({ body: pdf, headers: { 'Content-Type': 'application/pdf', 'X-FlightMap-Release-Id': release('dtpp').id,
+        'X-FlightMap-Chart-Id': chart.id, 'X-FlightMap-Pdf-Sha256': pdfHash } }); return
+    }
+    let payload: unknown
+    if (url.pathname.endsWith('/status')) payload = status({ current_releases: { dtpp: release('dtpp') },
+      research: { current_time: '2026-09-08T00:00:00Z', active_snapshots: { nasr: researchSnapshot() }, snapshots: [], attempts: [], storage_errors: [], disclaimer: 'synthetic only' } })
+    else if (url.pathname.endsWith('/coverage') || url.pathname.endsWith('/sources')) payload = []
+    else if (url.pathname.endsWith('/features')) payload = { ...envelope, type: 'FeatureCollection', features: [{ type: 'Feature', geometry: airport.geometry,
+      properties: { ...airport.properties, datum: 'NAD83', id: airport.id, identifier: airport.identifier, name: airport.name, kind: 'airport', ...envelope, provenance: airport.provenance } }] }
+    else if (url.pathname.endsWith('/search')) payload = { ...envelope, items: envelope.snapshot_id ? [airport] : [] }
+    else if (url.pathname.endsWith('/charts')) payload = { ...envelope, items: [chart] }
+    else throw new Error(`Unexpected narrow-layout request ${url}`)
+    await route.fulfill({ json: payload })
+  })
+  await page.goto('/')
+  await expect(page.getByText('API 已连接')).toBeVisible()
+  await page.getByRole('textbox', { name: /搜索机场/ }).fill('ZZZ')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await page.getByLabel('搜索结果').getByRole('button', { name: /SYNTHETIC TEST AIRPORT/ }).click()
+  const shell = page.getByRole('main', { name: '研究工作区' })
+  const map = page.getByLabel('航空资料地图', { exact: true })
+  await expect(map).toHaveAttribute('data-zoom', '10')
+  expect(await shell.evaluate((el) => el.clientHeight)).toBe(642)
+  expect(await shell.evaluate((el) => el.scrollHeight)).toBeGreaterThan(642)
+  await expect(page.getByRole('heading', { name: 'ZZZ', exact: true })).not.toBeInViewport()
+
+  // The pointer is over the visible map, not a scrollbar or an obscured panel.
+  await page.mouse.move(259, 480)
+  await page.mouse.wheel(0, 430)
+  await expect.poll(() => shell.evaluate((el) => el.scrollTop)).toBeGreaterThan(300)
+  await expect(map).toHaveAttribute('data-zoom', '10')
+  const heading = page.getByRole('heading', { name: 'ZZZ', exact: true })
+  await expect(heading).toBeInViewport({ ratio: 1 })
+  expect((await heading.boundingBox())!.y).toBeGreaterThan(132)
+
+  // Focus only chooses the keyboard's scroll owner; PageDown performs the scroll.
+  await shell.focus()
+  const beforePageDown = await shell.evaluate((el) => el.scrollTop)
+  await page.keyboard.press('PageDown')
+  await expect.poll(() => shell.evaluate((el) => el.scrollTop)).toBeGreaterThan(beforePageDown)
+  const chartButton = page.getByRole('button', { name: /SYNTHETIC DEPARTURE CHART/ })
+  await expect(chartButton).toBeInViewport({ ratio: 1 })
+  await chartButton.click()
+  await expect(page.getByText('PDF 已显示 · 第 1 页 / 共 2 页')).toBeVisible()
+  const nextPage = page.getByRole('button', { name: '下一页' })
+  await expect(nextPage).toBeInViewport({ ratio: 1 })
+  expect((await nextPage.boundingBox())!.y).toBeGreaterThan(132)
+  // Tabbing from the selected chart reaches close, the official link, then next page.
+  await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); await page.keyboard.press('Tab')
+  await expect(nextPage).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('PDF 已显示 · 第 2 页 / 共 2 页')).toBeVisible()
+  expect((await page.locator('.pdf-canvas-container canvas').boundingBox())!.width).toBeLessThan(519)
+  await page.screenshot({ path: 'test-results/research-narrow-519.png' })
 })
