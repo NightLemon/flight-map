@@ -110,8 +110,13 @@ export function AviationMap({ features, procedure, focus, highlight = focus, onF
     }
     mapRef.current = map
     const narrow = window.matchMedia('(max-width: 760px)')
-    // Narrow layouts must remain page-scrollable without disabling map zoom entirely.
-    const updateWheel = () => { if (narrow.matches) map.cooperativeGestures.enable(); else map.cooperativeGestures.disable() }
+    const touch = window.matchMedia('(any-pointer: coarse)')
+    // Touch maps use one finger to pan and two to zoom. Keep scroll protection
+    // only for small mouse-only windows, where wheel scrolling belongs to the page.
+    const updateGestures = () => {
+      if (narrow.matches && !touch.matches && navigator.maxTouchPoints === 0) map.cooperativeGestures.enable()
+      else map.cooperativeGestures.disable()
+    }
     const updateClusterCount = () => {
       if (!alive || !map.getLayer('airport-clusters')) return
       setClusterCount(map.queryRenderedFeatures({ layers: ['airport-clusters'] }).length)
@@ -141,8 +146,9 @@ export function AviationMap({ features, procedure, focus, highlight = focus, onF
         // The map can unmount or receive new data before the worker replies.
       }
     }
-    updateWheel()
-    narrow.addEventListener('change', updateWheel)
+    updateGestures()
+    narrow.addEventListener('change', updateGestures)
+    touch.addEventListener('change', updateGestures)
     map.addControl(new AttributionControl({ compact: false }), 'bottom-right')
     map.addControl(new NavigationControl({ showCompass: true }), 'bottom-right')
     map.addControl(new ScaleControl({ unit: 'nautical' }), 'bottom-left')
@@ -216,7 +222,8 @@ export function AviationMap({ features, procedure, focus, highlight = focus, onF
     observer.observe(containerRef.current)
     return () => {
       alive = false
-      narrow.removeEventListener('change', updateWheel)
+      narrow.removeEventListener('change', updateGestures)
+      touch.removeEventListener('change', updateGestures)
       observer.disconnect()
       mapRef.current = null
       map.remove()

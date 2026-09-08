@@ -123,3 +123,43 @@ test('mobile keeps the compact controls, map and airport frequencies reachable',
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/pages-mobile.png', fullPage: true })
 })
+
+test.describe('phone map gestures', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('one finger pans and two fingers zoom without the cooperative gesture overlay', async ({ page, context }) => {
+    await page.goto('./')
+    const map = page.getByLabel('航空资料地图', { exact: true })
+    await expect(map).toHaveAttribute('data-basemap-state', 'ready')
+    const box = (await map.boundingBox())!
+    const x = box.x + box.width / 2, y = box.y + box.height / 2
+    const beforeLongitude = Number(await map.getAttribute('data-longitude'))
+    const session = await context.newCDPSession(page)
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number; id: number }>) =>
+      session.send('Input.dispatchTouchEvent', { type, touchPoints: points })
+    try {
+      await touch('touchStart', [{ x, y, id: 0 }])
+      for (let step = 1; step <= 8; step++) {
+        await touch('touchMove', [{ x: x + step * 9, y, id: 0 }])
+        // Model a continuous gesture across animation frames, not a DOM event stub.
+        await page.waitForTimeout(20)
+      }
+      await touch('touchEnd', [])
+      await expect.poll(async () => Math.abs(Number(await map.getAttribute('data-longitude')) - beforeLongitude)).toBeGreaterThan(0.1)
+      await expect(page.locator('.maplibregl-cooperative-gesture-screen')).toHaveCount(0)
+
+      const beforeZoom = Number(await map.getAttribute('data-zoom'))
+      await touch('touchStart', [{ x: x - 25, y, id: 0 }, { x: x + 25, y, id: 1 }])
+      for (let step = 1; step <= 8; step++) {
+        const gap = 25 + step * 7
+        await touch('touchMove', [{ x: x - gap, y, id: 0 }, { x: x + gap, y, id: 1 }])
+        await page.waitForTimeout(20)
+      }
+      await touch('touchEnd', [])
+      await expect.poll(async () => Number(await map.getAttribute('data-zoom'))).toBeGreaterThan(beforeZoom + 0.3)
+      await expect(page.locator('.maplibregl-cooperative-gesture-screen')).toHaveCount(0)
+    } finally {
+      await session.detach()
+    }
+  })
+})
