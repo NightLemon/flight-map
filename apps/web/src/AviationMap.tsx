@@ -66,6 +66,12 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
       return
     }
     mapRef.current = map
+    // In the stacked layout the wheel belongs to the reading page. Map buttons
+    // retain explicit zoom control without trapping access to the chart panel.
+    const narrow = window.matchMedia('(max-width: 760px)')
+    const updateWheel = () => { if (narrow.matches) map.scrollZoom.disable(); else map.scrollZoom.enable() }
+    updateWheel()
+    narrow.addEventListener('change', updateWheel)
     map.addControl(new NavigationControl({ showCompass: true }), 'bottom-right')
     map.addControl(new ScaleControl({ unit: 'nautical' }), 'bottom-left')
     const emitBounds = () => {
@@ -105,7 +111,7 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
     map.on('moveend', emitBounds)
     const observer = new ResizeObserver(() => map.resize())
     observer.observe(containerRef.current)
-    return () => { observer.disconnect(); mapRef.current = null; map.remove() }
+    return () => { narrow.removeEventListener('change', updateWheel); observer.disconnect(); mapRef.current = null; map.remove() }
   }, [])
 
   useEffect(() => {

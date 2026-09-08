@@ -275,7 +275,7 @@ function App() {
   }
 
   const hasReleases = Object.keys(releases).length > 0 || Boolean(snapshot)
-  return <main className="app-shell" style={{ '--desk-width': `${deskWidth}px` } as React.CSSProperties}>
+  return <main className="app-shell" aria-label="研究工作区" tabIndex={0} style={{ '--desk-width': `${deskWidth}px` } as React.CSSProperties}>
     <AviationMap features={features} procedure={geometry ?? EMPTY_MAP} focus={focus} onBounds={setBounds} onFeature={(properties) => {
       const release = Object.values(releases).find((item) => item.id === properties.release_id)
       const researchSnapshot = snapshot?.id === properties.snapshot_id ? snapshot : null
