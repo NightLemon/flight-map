@@ -157,3 +157,26 @@ def test_revocation_survives_restart_and_prevents_reactivation(tmp_path):
     with repo._connect() as connection:
         assert not connection.execute("SELECT * FROM active_snapshots").fetchall()
     assert repo.snapshot_report(item.id)["snapshot"]["revoked_reason"] == "SYNTHETIC withdrawal"
+
+
+def test_snapshot_dates_are_reminders_not_exact_expiration(tmp_path):
+    repo, raw, item = setup_snapshot(tmp_path)
+    policies = {("faa-aeronav", "nasr"): product()}
+    repo.activate_snapshot(item.id, product(), at=NOW)
+    now_status = repo.research_status(policies, at=NOW)["active_snapshots"]["nasr"]
+    assert now_status["date_status"] == "researchable"
+    assert now_status["expected_update_date"] == "2026-10-01"
+    assert "valid_to" not in now_status
+    later = NOW + timedelta(days=60)
+    assert (
+        repo.research_status(policies, at=later)["active_snapshots"]["nasr"]["date_status"]
+        == "update-due"
+    )
+    assert repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", at=later) == item
+    future = snapshot(raw, official_effective_date=later.date())
+    repo.stage_snapshot(future, [airport(raw)], report())
+    assert repo.research_status(policies, at=NOW)["snapshots"][0]["date_status"] == "future"
+    policies[("faa-aeronav", "nasr")].local_access.processing = "unknown"
+    blocked = repo.research_status(policies, at=NOW)
+    assert not blocked["active_snapshots"]
+    assert all(s["date_status"] == "unavailable" for s in blocked["snapshots"])

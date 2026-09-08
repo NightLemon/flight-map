@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from flightmap_schema import RawAsset, ResearchRecord, ResearchSnapshot, ValidationReport
 
@@ -21,6 +21,84 @@ def _digest_records(records):
 
 
 class SnapshotRepositoryMixin:
+    def research_status(self, policies, *, at=None):
+        now = at or datetime.now(UTC)
+        if now.tzinfo is None:
+            raise StoreError("Status time must include timezone")
+        today = now.astimezone(UTC).date()
+        active, snapshots, errors = {}, [], []
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            pointers = {
+                (r[0], r[1]): r[2]
+                for r in connection.execute(
+                    "SELECT source_id,product_id,snapshot_id FROM active_snapshots"
+                )
+            }
+            for row in connection.execute(
+                "SELECT * FROM research_snapshots ORDER BY created_at DESC,id"
+            ):
+                try:
+                    item = ResearchSnapshot.model_validate_json(row["metadata"])
+                except ValueError:
+                    errors.append({"snapshot_id": row["id"], "reason": "Invalid snapshot metadata"})
+                    continue
+                expected = item.official_effective_date + timedelta(days=item.update_interval_days)
+                state, reason, date_status = "staged", "", "researchable"
+                policy = policies.get((item.source_id, item.product_id))
+                try:
+                    if policy is None:
+                        raise StoreError("Snapshot source is no longer registered", 403)
+                    self._check_snapshot(connection, row, policy, item.source_id)
+                except StoreError as exc:
+                    state = "revoked" if row["revoked_reason"] is not None else "blocked"
+                    reason, date_status = str(exc), "unavailable"
+                else:
+                    if item.official_effective_date > today:
+                        state, date_status = "preview", "future"
+                    else:
+                        if pointers.get((item.source_id, item.product_id)) == item.id:
+                            state = "active"
+                        elif row["activated_at"]:
+                            state = "history"
+                        if today >= expected:
+                            date_status = "update-due"
+                            reason = "已到预计更新日期，应检查 NASR 更新；此日期不代表官方失效时间"
+                try:
+                    report = ValidationReport.model_validate_json(row["report"])
+                    counts = report.model_dump(
+                        include={"input_count", "success_count", "unsupported_count", "error_count"}
+                    )
+                except ValueError:
+                    counts = {}
+                public = {
+                    **item.model_dump(mode="json"),
+                    "state": state,
+                    "reason": reason,
+                    "date_status": date_status,
+                    "expected_update_date": expected.isoformat(),
+                    "counts": counts,
+                    "revoked_reason": row["revoked_reason"],
+                }
+                snapshots.append(public)
+                if state == "active":
+                    active[item.product_id] = public
+            attempts = [
+                dict(r)
+                for r in connection.execute(
+                    "SELECT a.* FROM research_attempts a JOIN "
+                    "(SELECT product_id,MAX(id) id FROM research_attempts GROUP BY product_id) b "
+                    "ON a.id=b.id ORDER BY a.id DESC"
+                )
+            ]
+        return {
+            "current_time": now,
+            "active_snapshots": active,
+            "snapshots": snapshots,
+            "attempts": attempts,
+            "storage_errors": errors,
+        }
+
     def revoke_snapshot(self, snapshot_id, reason):
         if not reason.strip():
             raise StoreError("Revocation requires a reason")
