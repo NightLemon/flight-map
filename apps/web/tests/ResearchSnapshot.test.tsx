@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MapData } from '../src/map-data'
 import { airport, chart, release, researchSnapshot, status } from './fixtures'
+vi.mock('../src/PdfViewer', () => ({ PdfViewer: () => <canvas /> }))
 
 vi.mock('../src/AviationMap', () => ({ AviationMap: ({ features, focus, onFeature }: { features: MapData; focus: unknown; onFeature: (p: object) => void }) => <div>
   <output data-testid="features">{JSON.stringify(features.features)}</output><output data-testid="focus">{JSON.stringify(focus)}</output>
@@ -73,6 +74,15 @@ describe('airport research snapshot UI', () => {
     data.research!.active_snapshots.nasr = researchSnapshot({ date_status: 'update-due' })
     render(<App />); await searchAirport()
     expect(screen.getByText(/当前仍在研究旧快照/)).toBeVisible()
+  })
+  it('shows research availability as the primary coverage state when strict validity remains blocked', async () => {
+    override = (url) => url.pathname.endsWith('/coverage') ? response([{ product_id: 'nasr', name: 'NASR', status: 'blocked', categories: ['airports'], note: 'validity-evidence-missing' }]) : undefined
+    render(<App />)
+    await screen.findByText('研究可用')
+    expect(screen.getByText('活动研究快照 · 官方日期 2026-09-03')).toBeVisible()
+    expect(screen.queryByText('已阻断')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('严格 Current 状态'))
+    expect(screen.getByText('严格 Current 未启用；日期级研究快照可用。')).toBeVisible()
   })
   it('requires an explicit history snapshot and immediately clears old map and selection', async () => {
     const old = researchSnapshot({ id: 'old-snapshot', state: 'history' })

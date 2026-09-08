@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MapData } from '../src/map-data'
 import { airport, chart, geometry, legs, procedure, release, status } from './fixtures'
+vi.mock('../src/PdfViewer', () => ({ PdfViewer: ({ title }: { title: string }) => <canvas title={`官方航图 ${title}`} /> }))
 
 vi.mock('../src/AviationMap', () => ({
   EMPTY_MAP: { type: 'FeatureCollection', features: [] },
