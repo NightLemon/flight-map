@@ -8,6 +8,7 @@ import {
   type SearchResult, type SnapshotEnvelope, type SnapshotFeatures, type SnapshotReport, type SnapshotStatus, type Source, type Status,
 } from './api'
 import { ResearchPanel } from './ResearchPanel'
+import { WorkspaceSplitter } from './WorkspaceSplitter'
 import { expired, MODE_NAMES, PRODUCT_NAMES, PRODUCTS, releaseKey, researchMode, sameChartCycle, selectedReleases, selectedSnapshot, snapshotChartDate, snapshotChoices, utc, type Selection } from './session'
 import './App.css'
 
@@ -35,10 +36,12 @@ function App() {
   const [mode, setMode] = useState<Mode>('current')
   const [browse, setBrowse] = useState<'research' | 'strict'>('research')
   const [snapshotId, setSnapshotId] = useState('')
+  const [deskWidth, setDeskWidth] = useState(500)
   const [selection, setSelection] = useState<Selection>({})
   const [layers, setLayers] = useState<Layer[]>(['airports'])
   const [bounds, setBounds] = useState<Bounds>([-180, -90, 180, 90])
   const [features, setFeatures] = useState<MapData>(EMPTY_MAP)
+  const [mapLoading, setMapLoading] = useState(false)
   const [truncated, setTruncated] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -82,7 +85,7 @@ function App() {
   }, [])
   const clearData = useCallback(() => {
     epoch.current += 1; searchEpoch.current += 1
-    setFeatures(EMPTY_MAP); setTruncated(false); setResults([]); setSearchState(''); setReport(null); setSnapshotReport(null); setFocus(null)
+    setFeatures(EMPTY_MAP); setMapLoading(false); setTruncated(false); setResults([]); setSearchState(''); setReport(null); setSnapshotReport(null); setFocus(null)
     clearResearch()
   }, [clearResearch])
   const fail = useCallback((reason: unknown) => {
@@ -149,6 +152,7 @@ function App() {
     // eslint-disable-next-line react/set-state-in-effect
     setFeatures(EMPTY_MAP); setTruncated(false)
     const requested = LAYERS.filter((layer) => layers.includes(layer.id) && (layer.id === 'airports' && snapshot || releases[layer.product]?.capabilities.includes(layer.id)))
+    setMapLoading(requested.length > 0)
     if (requested.length === 0) return () => controller.abort()
     const timer = window.setTimeout(() => {
       Promise.all(requested.map(async (layer) => {
@@ -158,6 +162,7 @@ function App() {
       })).then((payloads) => {
         if (token !== epoch.current || controller.signal.aborted) return
         setFeatures({ type: 'FeatureCollection', features: payloads.flatMap((payload) => payload.features) })
+        setMapLoading(false)
         setTruncated(payloads.some((payload) => payload.truncated))
       }).catch((reason: unknown) => { if (token === epoch.current && !controller.signal.aborted) fail(reason) })
     }, 180)
@@ -270,7 +275,7 @@ function App() {
   }
 
   const hasReleases = Object.keys(releases).length > 0 || Boolean(snapshot)
-  return <main className="app-shell">
+  return <main className="app-shell" style={{ '--desk-width': `${deskWidth}px` } as React.CSSProperties}>
     <AviationMap features={features} procedure={geometry ?? EMPTY_MAP} focus={focus} onBounds={setBounds} onFeature={(properties) => {
       const release = Object.values(releases).find((item) => item.id === properties.release_id)
       const researchSnapshot = snapshot?.id === properties.snapshot_id ? snapshot : null
@@ -326,14 +331,20 @@ function App() {
         <p className="muted-copy">选中程序分支后，地图单独显示该分支的名义几何。</p>
       </section>
       <section><div className="section-heading"><span>产品覆盖</span></div>
-        {coverage.map((row) => <div className="coverage-item" key={row.product_id}><b>{PRODUCT_NAMES[row.product_id] ?? row.name}</b><span>{COVERAGE_NAMES[row.status] ?? row.status}</span>
-          {row.note && <><p>{coverageSummary(row.note)}</p>{coverageSummary(row.note) !== row.note && <details><summary>查看获取记录</summary><p>{row.note}</p></details>}</>}
+        {coverage.map((row) => {
+          const activeResearch = browse === 'research' && row.product_id === 'nasr' ? status?.research?.active_snapshots.nasr : undefined
+          return <div className="coverage-item" key={row.product_id}><b>{PRODUCT_NAMES[row.product_id] ?? row.name}</b><span>{activeResearch ? '研究可用' : COVERAGE_NAMES[row.status] ?? row.status}</span>
+          {activeResearch && <><p>活动研究快照 · 官方日期 {activeResearch.official_effective_date}</p><p className="version-caption">{activeResearch.id}</p>
+            {activeResearch.date_status === 'update-due' && <p>已到预计更新日期；当前可研究旧快照。</p>}
+            {row.status !== 'current' && <details><summary>严格 Current 状态</summary><p>严格 Current 未启用；日期级研究快照可用。</p><p>{row.note}</p></details>}
+          </>}
+          {row.note && !activeResearch && <><p>{coverageSummary(row.note)}</p>{coverageSummary(row.note) !== row.note && <details><summary>查看获取记录</summary><p>{row.note}</p></details>}</>}
           {row.last_successful_release && <>
             <p>最近验证通过 {row.last_successful_release.airac} · {row.last_successful_release.id}</p>
             <p className="version-caption">有效期 {utc(row.last_successful_release.valid_from)} — {utc(row.last_successful_release.valid_to)}</p>
           </>}
           {row.notices_url && <p><a href={row.notices_url} target="_blank" rel="noopener noreferrer">官方更正公告 ↗</a></p>}
-        </div>)}
+        </div>})}
         {!coverage.length && <p className="muted-copy">等待 API 提供覆盖状态。</p>}
       </section>
       <section><div className="section-heading"><span>官方来源与使用依据</span></div>
@@ -351,11 +362,13 @@ function App() {
       <h1>{connection === 'loading' ? '正在检查资料版本' : mode === 'current' ? browse === 'research' ? '尚无可用研究资料' : '尚无已验证的当前资料' : '请选择资料版本'}</h1>
       <p>{mode === 'current' ? '地图仅显示参考网格。获取官方资料、查看报告并激活研究快照后，便可开始研究。' : '在左侧为各产品选择版本。预览和历史资料始终保留版本标识。'}</p>
     </section>}
-    {hasReleases && !features.features.length && !error && <div className="map-caption">当前视野内没有已启用图层要素 · 可搜索定位</div>}
+    {mapLoading && <div className="map-caption" role="status">正在读取当前视野的机场与图层…</div>}
+    {hasReleases && !mapLoading && !features.features.length && !error && <div className="map-caption">当前视野内没有已启用图层要素 · 可搜索定位</div>}
     {truncated && <div className="map-caption">要素数量已达查询上限，请放大地图查看完整局部资料。</div>}
+    <WorkspaceSplitter width={deskWidth} onWidth={setDeskWidth} />
     <ResearchPanel selected={selected} snapshot={selected?.snapshot_id ? snapshot ?? undefined : undefined} release={selected ? releases[selected.product_id] : undefined} procedureRelease={releases.cifp} procedures={procedures} detail={detail} branch={branch} geometry={geometry}
       charts={procedureChosen && !sameChartCycle(releases.cifp, releases.dtpp) ? [] : charts} chartRelease={releases.dtpp} chartMessage={chartMessage} loading={researchLoading} chartsLoading={chartsLoading} message={researchMessage}
-      onProcedure={(record) => void selectProcedure(record)} onBranch={(id) => void selectBranch(id)} onClose={clearResearch} />
+      onProcedure={(record) => void selectProcedure(record)} onBranch={(id) => void selectBranch(id)} onClose={clearResearch} mode={mode} onInvalid={fail} />
     {report && <div className="report-backdrop"><section className="report-modal glass-panel" role="dialog" aria-modal="true" aria-label="验证报告">
       <div className="section-heading"><span>验证报告 · {report.release.product_id.toUpperCase()}</span><button onClick={() => setReport(null)}>关闭报告</button></div>
       <h2>{report.release.airac}</h2><p className="version-caption">{report.release.id}</p><p>{utc(report.release.valid_from)} — {utc(report.release.valid_to)}</p>

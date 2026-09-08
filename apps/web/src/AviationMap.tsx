@@ -48,6 +48,7 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
   const mapRef = useRef<MapLibreMap | null>(null)
   const latest = useRef({ features, procedure, onFeature, onBounds })
   const [error, setError] = useState('')
+  const [position, setPosition] = useState({ longitude: -98, latitude: 39, zoom: 3.25 })
   useLayoutEffect(() => { latest.current = { features, procedure, onFeature, onBounds } }, [features, procedure, onFeature, onBounds])
 
   useEffect(() => {
@@ -69,6 +70,8 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
     map.addControl(new ScaleControl({ unit: 'nautical' }), 'bottom-left')
     const emitBounds = () => {
       const b = map.getBounds()
+      const center = map.getCenter()
+      setPosition({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom() })
       latest.current.onBounds(normalizeMapBounds([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]))
     }
     map.on('load', () => {
@@ -100,7 +103,9 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
       emitBounds()
     })
     map.on('moveend', emitBounds)
-    return () => { mapRef.current = null; map.remove() }
+    const observer = new ResizeObserver(() => map.resize())
+    observer.observe(containerRef.current)
+    return () => { observer.disconnect(); mapRef.current = null; map.remove() }
   }, [])
 
   useEffect(() => {
@@ -116,7 +121,8 @@ export function AviationMap({ features, procedure, focus, onFeature, onBounds }:
   }, [focus])
 
   return <>
-    <div ref={containerRef} className="map-canvas" aria-label="航空资料地图" />
+    <div ref={containerRef} className="map-canvas" aria-label="航空资料地图" data-feature-count={features.features.length} data-longitude={position.longitude} data-latitude={position.latitude} data-zoom={position.zoom} />
+    <output className="map-position" aria-label="地图中心">{position.latitude.toFixed(4)}°, {position.longitude.toFixed(4)}° · Z{position.zoom.toFixed(1)}</output>
     {error && <div className="map-error" role="status">{error}</div>}
   </>
 }
