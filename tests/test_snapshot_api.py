@@ -14,6 +14,23 @@ def configured_snapshot(tmp_path):
     return client, repo, raw, item, time
 
 
+def test_coverage_does_not_repeat_the_status_research_scan(tmp_path, monkeypatch):
+    client, _, _, _, _ = configured_snapshot(tmp_path)
+    repo = client.app.state.repository
+    calls = []
+    original = repo.research_status
+
+    def observed(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(repo, "research_status", observed)
+    assert client.get("/api/v1/coverage").status_code == 200
+    assert calls == []
+    assert client.get("/api/v1/status").status_code == 200
+    assert calls == [True]
+
+
 def test_status_and_complete_report_keep_current_release_separate(tmp_path):
     client, repo, raw, item, _ = configured_snapshot(tmp_path)
     status = client.get("/api/v1/status").json()

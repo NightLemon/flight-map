@@ -15,6 +15,7 @@ from .download import USER_AGENT
 _DATE_TOKEN = re.compile(r"(?<!\d)(20\d{2}[-_/]?\d{2}[-_/]?\d{2}|\d{6})(?!\d)")
 _NASR_PAGE = re.compile(r"/NASR_Subscription/20\d{2}-\d{2}-\d{2}/?$", re.I)
 _APT_ZIP = re.compile(r"/\d{2}_[A-Za-z]{3}_20\d{2}_APT_CSV\.zip$", re.I)
+_NASR_LAYER_ZIP = re.compile(r"/\d{2}_[A-Za-z]{3}_20\d{2}_(NAV|FIX|AWY|FRQ)_CSV\.zip$", re.I)
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,13 @@ def _classify(product_id: str, url: str, label: str) -> tuple[str, str] | None:
             return "product-page", "edition"
         if _APT_ZIP.search(path):
             return "asset", "airport-csv"
+        layer = _NASR_LAYER_ZIP.search(path)
+        if layer:
+            return "asset", f"{layer[1].lower()}-csv"
+        if re.search(r"/20\d{2}-\d{2}-\d{2}/AWY\.zip$", path, re.I):
+            return "asset", "airway-points"
+        if lower.endswith("/layout_data.zip"):
+            return "documentation", "nasr-layout"
         if lower.endswith("/readme.txt"):
             return "documentation", "readme"
         if lower.endswith(".pdf") and "nasr" in lower:

@@ -22,7 +22,7 @@ export type Status = {
 export type SnapshotStatus = {
   id: string; source_id: string; product_id: string; official_effective_date: string
   date_precision: 'day'; exact_validity_status: 'unknown'; date_evidence: string[]
-  input_sha256: string[]; parser_version: string; schema_version: 'research-1'
+  input_sha256: string[]; parser_version: string; schema_version: 'research-1' | 'research-2'
   capabilities: string[]; update_interval_days: number; update_interval_evidence: string[]
   state: 'active' | 'staged' | 'history' | 'preview' | 'revoked' | 'blocked'
   date_status: 'researchable' | 'future' | 'update-due' | 'unavailable'
@@ -63,6 +63,7 @@ export type GeometryResponse = MapData & {
 }
 export type FeaturesResponse = MapData & { release_id: string; mode: Mode; truncated?: boolean }
 export type SnapshotEnvelope = { snapshot_id: string; mode: ResearchMode; items: ResearchRecord[]; disclaimer: string; truncated?: boolean }
+export type SnapshotRecord = { snapshot_id: string; mode: ResearchMode; record: ResearchRecord; disclaimer: string }
 export type SnapshotFeatures = MapData & { snapshot_id: string; mode: ResearchMode; disclaimer: string; truncated?: boolean }
 export type SnapshotReport = { snapshot: SnapshotStatus; report: Report['report']; inputs: unknown[]; disclaimer: string }
 export type Report = {
@@ -76,10 +77,15 @@ export class ApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status }
 }
 
-export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const base = import.meta.env.VITE_API_BASE_URL ?? ''
-  const deadline = AbortSignal.timeout(20000)
-  const response = await fetch(`${base}/api/v1${path}`, { signal: signal ? AbortSignal.any([signal, deadline]) : deadline, cache: 'no-store' })
+export function apiUrl(path: `/${string}`): string {
+  const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+  return `${base}/api/v1${path}`
+}
+
+export async function getJson<T>(path: `/${string}`, signal?: AbortSignal): Promise<T> {
+  // The first status after API startup verifies the full immutable local snapshot once.
+  const deadline = AbortSignal.timeout(path === '/status' ? 60000 : 20000)
+  const response = await fetch(apiUrl(path), { signal: signal ? AbortSignal.any([signal, deadline]) : deadline, cache: 'no-store' })
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { detail?: unknown }
     const detail = typeof payload.detail === 'string' ? payload.detail : '请求失败'

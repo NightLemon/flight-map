@@ -1,20 +1,26 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MapData } from '../src/map-data'
+import type { MapData, MapViewport } from '../src/map-data'
 import { airport, chart, geometry, legs, procedure, release, status } from './fixtures'
 vi.mock('../src/PdfViewer', () => ({ PdfViewer: ({ title }: { title: string }) => <canvas title={`官方航图 ${title}`} /> }))
 
 vi.mock('../src/AviationMap', () => ({
   EMPTY_MAP: { type: 'FeatureCollection', features: [] },
-  AviationMap: ({ features, procedure }: { features: MapData; procedure: MapData }) => <div>
+  AviationMap: ({ features, procedure, focus, onViewport }: { features: MapData; procedure: MapData; focus: [number, number] | null; onViewport: (value: MapViewport | null) => void }) => {
+    useEffect(() => onViewport({ bounds: [-125, 25, -65, 50], zoom: 3.25 }), [onViewport])
+    useEffect(() => { if (focus) onViewport({ bounds: [-101, 34, -99, 36], zoom: 10 }) }, [focus, onViewport])
+    return <div>
     <output data-testid="map-features">{JSON.stringify(features.features)}</output>
     <output data-testid="map-procedure">{JSON.stringify(procedure.features)}</output>
-  </div>,
+    <button onClick={() => onViewport({ bounds: [-101, 34, -99, 36], zoom: 10 })}>测试放大地图</button>
+  </div> },
 }))
 import App from '../src/App'
 
 function renderStrict() {
   const view = render(<App />)
+  fireEvent.click(screen.getByText('数据管理'))
   fireEvent.click(screen.getByRole('button', { name: '严格有效期' }))
   return view
 }
@@ -60,6 +66,13 @@ async function chooseAirport() {
 }
 
 describe('research workspace', () => {
+  it('does not request strict airport features at overview zoom', async () => {
+    renderStrict()
+    await screen.findByText('放大地图查看附近机场，或搜索机场直接定位')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(requested.filter((url) => url.pathname.endsWith('/features'))).toEqual([])
+    expect(screen.getByTestId('map-features')).toHaveTextContent('[]')
+  })
   it('retains the last validated cycle and official notices when acquisition fails without making it current', async () => {
     snapshot = status({ current_releases: {}, releases: [], publication_state: 'empty', verified_release_available: false })
     override = (url) => url.pathname.endsWith('/coverage') ? response([
@@ -123,6 +136,7 @@ describe('research workspace', () => {
     expect(screen.queryByTitle(/官方航图/)).not.toBeInTheDocument()
     expect(screen.getByTestId('map-features')).toHaveTextContent('[]')
     await screen.findByText('Network disconnected')
+    expect(screen.getByText('API 未连接')).toBeVisible()
     expect(screen.queryByText('SYNTHETIC TEST AIRPORT')).not.toBeInTheDocument()
   })
 
@@ -132,6 +146,8 @@ describe('research workspace', () => {
     override = (url) => url.pathname.includes('/procedures/') ? response({ detail: 'Publication unavailable' }, code) : undefined
     fireEvent.click(screen.getByRole('button', { name: /SYNTHETIC SID/ }))
     await screen.findByText(`Publication unavailable (${code})`)
+    expect(screen.getByText('API 已连接')).toBeVisible()
+    expect(screen.queryByText('API 未连接')).not.toBeInTheDocument()
     expect(screen.queryByText('SYNTHETIC TEST AIRPORT')).not.toBeInTheDocument()
     expect(screen.getByTestId('map-features')).toHaveTextContent('[]')
   })
@@ -197,6 +213,7 @@ describe('research workspace', () => {
       return response(statusReads === 1 ? snapshot : status({ current_releases: {}, releases: [], publication_state: 'empty' }))
     }
     renderStrict()
+    fireEvent.click(screen.getByRole('button', { name: '测试放大地图' }))
     await screen.findByText('API 已连接')
     await waitFor(() => expect(screen.getByTestId('map-features')).toHaveTextContent('test:airport:ZZZ'))
     await screen.findByText('尚无已验证的当前资料')

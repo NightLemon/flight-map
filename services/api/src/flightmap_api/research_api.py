@@ -4,6 +4,7 @@ import math
 from typing import Annotated, Literal
 
 from fastapi import Query
+from flightmap_schema.research_layers import LAYER_KINDS
 from flightmap_storage import StoreError
 
 ResearchMode = Literal["active", "history", "preview"]
@@ -62,11 +63,13 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
     def features(
         snapshot_id: str | None = None,
         mode: ResearchMode = "active",
-        layer: Literal["airports"] = "airports",
+        layer: Literal["airports", "runways", "navaids", "waypoints", "airways"] = "airports",
         bbox: str | None = None,
         limit: Annotated[int, Query(ge=1, le=10000)] = 5000,
     ):
         item = resolve(snapshot_id, mode)
+        if layer not in item.capabilities:
+            raise StoreError("This research snapshot does not support the requested layer", 422)
         try:
             west, south, east, north = (float(v) for v in (bbox or "-180,-90,180,90").split(","))
             if not (
@@ -83,11 +86,8 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
             item.id,
             bounds=(west, south, east, north),
             limit=limit + 1,
+            kind=LAYER_KINDS[layer],
         ):
-            lon, lat = record.geometry["coordinates"]
-            longitude_matches = west <= lon <= east if west <= east else lon >= west or lon <= east
-            if not longitude_matches or not south <= lat <= north:
-                continue
             selected.append(
                 {
                     "type": "Feature",
@@ -98,7 +98,7 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
                         "id": record.id,
                         "name": record.name,
                         "identifier": record.identifier,
-                        "kind": "airport",
+                        "kind": record.kind,
                         "airport_id": record.airport_id,
                         "airport_ident": record.airport_ident,
                         "provenance": record.provenance.model_dump(mode="json"),
@@ -116,6 +116,48 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
             "type": "FeatureCollection",
             "features": selected[:limit],
             "truncated": len(selected) > limit,
+        }
+
+    @application.get("/api/v1/research/records/{record_id}")
+    def record_detail(
+        record_id: str, snapshot_id: str | None = None, mode: ResearchMode = "active"
+    ):
+        item = resolve(snapshot_id, mode)
+        records = repo.list_snapshot_records(item.id, record_id=record_id, limit=1)
+        if not records:
+            raise StoreError("Research record not found in the selected snapshot", 404)
+        resolve(item.id, mode)
+        return {
+            "snapshot_id": item.id,
+            "mode": mode,
+            "disclaimer": disclaimer,
+            "record": records[0].model_dump(mode="json"),
+        }
+
+    @application.get("/api/v1/research/airports/{airport_id}/communications")
+    def communications(
+        airport_id: str,
+        snapshot_id: str | None = None,
+        mode: ResearchMode = "active",
+    ):
+        item = resolve(snapshot_id, mode)
+        airports = repo.list_snapshot_records(
+            item.id, record_id=airport_id, kind="airport", limit=1
+        )
+        if not airports:
+            raise StoreError("Airport not found in the selected snapshot", 404)
+        if "communications" not in item.capabilities:
+            raise StoreError("This research snapshot does not contain airport communications", 409)
+        records = repo.list_snapshot_records(item.id, kind="communication", airport_id=airport_id)
+        records.sort(
+            key=lambda r: (r.properties.get("service", ""), r.properties["frequency"], r.id)
+        )
+        resolve(item.id, mode)
+        return {
+            "snapshot_id": item.id,
+            "mode": mode,
+            "disclaimer": disclaimer,
+            "items": [record.model_dump(mode="json") for record in records],
         }
 
     return resolve

@@ -39,6 +39,19 @@ $snapshotId = "<上一步输出的 snapshot_id>"
 
 `update --research` 只保存候选，`activate-snapshot` 才切换研究选择。已有原件可加 `--asset-sha256 <完整SHA>` 离线构建，不重复下载或增加获取事件。预览版加 `--preview`，未来日期不能激活。达到 NASR 预计更新日期后显示更新提醒，仍可明确按研究模式浏览；这不表示已知官方失效时刻。详见 [本机操作说明](docs/local-operations.md)。
 
+### NASR research-2 图层候选
+
+research-2 把同一官方日期的 NASR 原件组成五个地图层：机场、跑道、导航台、航点、航路；点击机场还会读取机场通信频率。构建命令只建立候选，不会激活研究指针或改变严格 Current：
+
+```powershell
+.\.venv\Scripts\flightmap-ingest.exe update --product nasr --research --all-layers
+.\.venv\Scripts\flightmap-ingest.exe update --product nasr --research --all-layers --bundle-manifest .cache/nasr-bundle.json
+```
+
+第二条命令只使用本机已登记的七项 SHA-256 原件，不下载数据。`--bundle-manifest` 必须与 `--all-layers` 一起使用，`--all-layers` 必须使用 `--research`，且两者不能和 `--asset-sha256` 混用。七项原件和解析边界见 [NASR 图层记录](docs/nasr-layers-2026-09-08.md)。旧 research-1 快照仍是机场模式，严格 Current 和 CIFP 的现有门禁不因 research-2 改变。
+
+地图默认只开启机场；每个已开启层按视野最多 500 项。最小缩放级别为机场 Z8、跑道 Z10、导航台 Z6、航点 Z9、航路 Z5。图例颜色为机场青色、跑道橙色、导航台蓝色、航点洋红、航路紫色；点击机场会显示用途、扇区、备注、仅接收标记和原件来源。本机 research-2 已激活，纽约四个新增图层及 JFK/SEA 自动通信展示已通过真实浏览器验收，详见 [多图层验收记录](docs/nasr-layers-2026-09-08.md)。
+
 ## 严格更新和发布
 
 ```powershell
@@ -59,6 +72,12 @@ $releaseId = "<上一步输出的 release_id>"
 退出码：0 为成功/未变化，1 为获取或验证失败，2 为需要人工操作或缺少证据。失败和阶段产物保存在数据目录；更新命令不发送外部消息、不自动发布。
 
 ## 使用
+
+左侧默认只显示一行资料日期和图层开关。点击“数据管理”可展开版本切换、覆盖状态、来源和验证报告；历史/预览及待更新状态会在收起时保留简短提醒。
+
+地图使用 MapLibre GL 与 OpenStreetMap 底图，默认概览不请求或绘制机场点。放大到局部（Z8 起）才按当前视野查询机场，每层每次最多 500 条；密集机场以数字聚合，点击展开，Z10 起显示机场标识。也可搜索机场直接定位。拖动地图会取消旧视野请求，停止移动后再加载。底图需要访问 `tile.openstreetmap.org`，瓦片失败会单独提示。
+
+窄窗口使用右下角 ＋ / − 或 Ctrl＋滚轮缩放地图（Mac 为 ⌘＋滚轮）；普通滚轮滚动页面，触屏使用双指。尝试普通滚轮缩放时会显示操作提示。
 
 选择机场研究快照，搜索并定位地图，再从机场资料面板选择航图。航图目录和 PDF 固定使用所选 d-TPP 发布版本。PDF 面板逐页渲染，支持翻页与缩放；网络或渲染失败会说明原因，并始终保留官方 PDF 链接。
 
@@ -82,6 +101,7 @@ npm run test:e2e
 
 ## 资料与后续推进
 
+- [接手分析与后续计划](docs/takeover-2026-09-08.md)：当前复核、首批可靠性修复及 NASR 跑道研究的分阶段建议。
 - [执行台账](docs/implementation-plan.md)：批准计划的全部任务编号、完成情况和阻断项。
 - [任务卡模板](docs/task-card-template.md)：为后续小模型任务固定输入、输出和验收。
 - [本机验收记录](docs/verification-2026-09-08.md)：真实产品结果、测试范围和未完成能力。

@@ -118,6 +118,37 @@ def test_record_validation_cache_cannot_label_an_older_sqlite_view_as_newer(tmp_
             env.repo.resolve_snapshot(env.item.id, env.policy, source_id="faa-aeronav", at=NOW)
 
 
+def test_status_keeps_multiple_validated_snapshots_but_rechecks_database_changes(
+    tmp_path, monkeypatch
+):
+    from flightmap_storage import snapshots as module
+
+    env = environment(tmp_path)
+    other = snapshot(env.raw, parser_version="synthetic-second")
+    env.repo.stage_snapshot(other, [env.record], report())
+    checked = []
+    original = module.check_record
+
+    def observed(record, item):
+        checked.append(item.id)
+        return original(record, item)
+
+    monkeypatch.setattr(module, "check_record", observed)
+    policies = {("faa-aeronav", "nasr"): env.policy}
+    env.repo.research_status(policies, at=NOW)
+    assert set(checked) == {env.item.id, other.id}
+    checked.clear()
+    env.repo.research_status(policies, at=NOW)
+    assert checked == []
+    with env.repo._connect() as writer, writer:
+        writer.execute(
+            "UPDATE snapshot_records SET name='tampered' WHERE snapshot_id=?", (other.id,)
+        )
+    state = env.repo.research_status(policies, at=NOW)
+    assert next(s for s in state["snapshots"] if s["id"] == other.id)["state"] == "blocked"
+    assert state["active_snapshots"]["nasr"]["id"] == env.item.id
+
+
 @pytest.mark.parametrize("endpoint", ["search", "features"])
 @pytest.mark.parametrize(
     "change,status",

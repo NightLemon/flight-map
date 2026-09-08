@@ -23,7 +23,7 @@ class ResearchSnapshot(BaseModel):
     date_evidence: list[str] = Field(min_length=1)
     input_sha256: list[str] = Field(min_length=1)
     parser_version: str = Field(min_length=1)
-    schema_version: Literal["research-1"] = "research-1"
+    schema_version: Literal["research-1", "research-2"] = "research-1"
     local_access: LocalAccessPolicy
     capabilities: list[str] = Field(default_factory=lambda: ["airports"])
     update_interval_days: Literal[28] = 28
@@ -37,6 +37,15 @@ class ResearchSnapshot(BaseModel):
             raise ValueError("Invalid snapshot input SHA-256")
         if len(set(self.input_sha256)) != len(self.input_sha256):
             raise ValueError("Duplicate snapshot inputs")
+        if self.schema_version == "research-2":
+            allowed = {"airports", "runways", "navaids", "waypoints", "airways", "communications"}
+            if (
+                "airports" not in self.capabilities
+                or not set(self.capabilities) <= allowed
+                or len(set(self.capabilities)) != len(self.capabilities)
+            ):
+                raise ValueError("Invalid NASR research layer capabilities")
+            self.capabilities = sorted(self.capabilities)
         self.input_sha256 = sorted(self.input_sha256)
         encoded = json.dumps(
             self.model_dump(mode="json", exclude={"id"}),

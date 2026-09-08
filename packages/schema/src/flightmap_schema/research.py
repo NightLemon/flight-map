@@ -40,7 +40,8 @@ class Provenance(BaseModel):
 
 
 RecordKind = Literal[
-    "airport", "runway", "navaid", "waypoint", "airway", "procedure", "leg", "chart"
+    "airport", "runway", "navaid", "waypoint", "airway", "communication",
+    "procedure", "leg", "chart",
 ]
 
 

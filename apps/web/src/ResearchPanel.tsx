@@ -1,5 +1,6 @@
 import type { GeometryResponse, Mode, Procedure, Release, ResearchRecord, SearchResult, SnapshotStatus } from './api'
 import { ChartPanel } from './ChartPanel'
+import { AirportCommunications } from './AirportCommunications'
 import { utc } from './session'
 
 type Props = {
@@ -9,6 +10,7 @@ type Props = {
   procedures: ResearchRecord[]; detail: Procedure | null; branch: string; geometry: GeometryResponse | null
   charts: ResearchRecord[]; chartRelease: Release | undefined; chartMessage: string
   loading: boolean; chartsLoading: boolean; message: string
+  communications?: ResearchRecord[]; communicationsLoading?: boolean; communicationsMessage?: string
   onProcedure: (record: ResearchRecord) => void; onBranch: (branch: string) => void
   onClose: () => void
   mode?: Mode; onInvalid?: (error: unknown) => void
@@ -50,6 +52,7 @@ export function ResearchPanel(props: Props) {
       <h2>{selected.identifier || selected.name}</h2>
       {selected.identifier && <p className="entity-name">{selected.name}</p>}
       {props.snapshot && <p className="inline-notice">官方日期 {props.snapshot.official_effective_date} · {String(selected.properties.coordinate_datum ?? selected.properties.datum ?? '坐标基准见原字段')}<br />精确生效时刻未知，仅用于日期级研究。</p>}
+      {selected.kind === 'airport' && <AirportCommunications items={props.communications ?? []} loading={props.communicationsLoading ?? false} message={props.communicationsMessage ?? ''} />}
       <RecordEvidence record={selected} release={release} snapshot={props.snapshot} />
       {props.message && <p role="status" className="inline-notice">{props.message}</p>}
       {props.loading && <p role="status" className="muted-copy">正在读取结构化程序…</p>}

@@ -1,0 +1,121 @@
+.airport-communications {
+  min-width: 0;
+  color: #c7dce5;
+}
+
+.airport-communications .section-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.airport-communications h2 {
+  color: #e1f1f5;
+  font-size: 15px;
+  margin: 0;
+}
+
+.airport-communications .section-heading small {
+  color: #7e9eae;
+  font: 10px var(--mono);
+}
+
+.communication-list {
+  display: grid;
+  max-height: 380px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.communication-item {
+  background: rgba(9, 28, 40, .88);
+  border: 1px solid var(--line);
+  border-left: 3px solid #4d91a3;
+  border-radius: 4px;
+  min-width: 0;
+  padding: 11px 12px;
+}
+
+.communication-primary {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: space-between;
+}
+
+.communication-service {
+  color: #c9e2ea;
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.communication-frequency {
+  color: var(--cyan);
+  font: 13px var(--mono);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.communication-remarks {
+  color: #9db7c3;
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.communication-remarks span {
+  color: #7799a8;
+  font: 9px var(--mono);
+  letter-spacing: .04em;
+  margin-right: 8px;
+}
+
+.communication-message {
+  background: rgba(230, 170, 88, .06);
+  border-left: 2px solid #bf8d47;
+  color: #e3b571;
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+  padding: 10px 11px;
+}
+
+.communication-source {
+  color: #91adb9;
+  font-size: 10px;
+  margin-top: 10px;
+}
+
+.communication-source summary {
+  color: #aac8d4;
+}
+
+.communication-source dl {
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 9px 0 0;
+}
+
+.communication-source dt { color: #718f9e; }
+.communication-source pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; }
+
+.communication-source dd {
+  color: #b4cad4;
+  font-family: var(--mono);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .communication-primary { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .communication-source dl { grid-template-columns: 1fr; }
+  .communication-source dd { margin-bottom: 5px; }
+}

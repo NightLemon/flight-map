@@ -12,6 +12,7 @@ import tempfile
 from contextlib import closing, contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from time import sleep
 from unittest.mock import patch
 
 from flightmap_ingestion import research_acquisition
@@ -66,6 +67,30 @@ def acquisition_count(directory: Path) -> int:
         return connection.execute("SELECT COUNT(*) FROM acquisitions").fetchone()[0]
 
 
+def remove_temporary_data_copy(target: Path, source: Path, work_root: Path) -> None:
+    # Only remove this verified, unique audit child; never a source or user-supplied directory.
+    target_path = target
+    source = source.resolve()
+    work_root = work_root.resolve()
+    for attempt in range(4):
+        resolved_target = target_path.resolve()
+        require(
+            resolved_target.parent == work_root and resolved_target.name.startswith("audit-"),
+            "Unsafe cleanup",
+        )
+        require(
+            resolved_target != source and not source.is_relative_to(resolved_target),
+            "Cannot remove live data",
+        )
+        try:
+            shutil.rmtree(resolved_target)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (32, 33) or attempt == 3:
+                raise
+            sleep((0.1, 0.2, 0.4)[attempt])
+
+
 @contextmanager
 def temporary_data_copy(source: Path, work_root: Path):
     require(not work_root.is_relative_to(source), "Audit workspace cannot be inside live data")
@@ -89,10 +114,7 @@ def temporary_data_copy(source: Path, work_root: Path):
             require(sha256(assets / digest) == digest, "Copied original failed its registered hash")
         yield target
     finally:
-        # Only remove this verified, unique audit child; never a source or user-supplied directory.
-        require(target.parent == work_root and target.name.startswith("audit-"), "Unsafe cleanup")
-        require(target != source and not source.is_relative_to(target), "Cannot remove live data")
-        shutil.rmtree(target)
+        remove_temporary_data_copy(target, source, work_root)
 
 
 def expect_store_error(status: int, operation) -> None:

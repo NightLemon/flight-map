@@ -1,0 +1,8 @@
+.map-canvas .maplibregl-ctrl-attrib {
+  font-family: Arial, sans-serif;
+  background: rgba(7, 17, 28, .82);
+  color: #c7dce2;
+}
+
+.map-canvas .maplibregl-ctrl-attrib a { color: #d9f7f8; }
+.map-basemap-notice { color: #d9b978; }

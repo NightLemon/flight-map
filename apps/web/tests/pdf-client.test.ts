@@ -9,13 +9,20 @@ const headers = { 'Content-Type': 'application/pdf', 'X-FlightMap-Release-Id': r
   'X-FlightMap-Chart-Id': 'chart-one', 'X-FlightMap-Pdf-Sha256': digest }
 
 beforeEach(() => vi.stubGlobal('crypto', webcrypto))
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 describe('pinned PDF transport', () => {
-  it('uses only the same-origin record endpoint without browser credentials and checks its bytes', async () => {
+  it.each([
+    [undefined, '/api/v1/charts/chart-one/pdf'],
+    ['', '/api/v1/charts/chart-one/pdf'],
+    ['https://api.example.test', 'https://api.example.test/api/v1/charts/chart-one/pdf'],
+    ['https://api.example.test/flight-map', 'https://api.example.test/flight-map/api/v1/charts/chart-one/pdf'],
+    ['https://api.example.test/flight-map/', 'https://api.example.test/flight-map/api/v1/charts/chart-one/pdf'],
+  ])('uses configured base %j for the API record endpoint without browser credentials and checks its bytes', async (base, expectedUrl) => {
+    vi.stubEnv('VITE_API_BASE_URL', base)
     const fetch = vi.fn(async () => new Response(bytes, { headers })); vi.stubGlobal('fetch', fetch)
     const result = await fetchChartPdf('chart-one', release('dtpp'), 'history', new AbortController().signal)
     expect(Array.from(result)).toEqual(Array.from(bytes))
-    expect(fetch).toHaveBeenCalledWith(`/api/v1/charts/chart-one/pdf?release_id=${release('dtpp').id}&mode=history`, expect.objectContaining({ cache: 'no-store', credentials: 'omit', redirect: 'error' }))
+    expect(fetch).toHaveBeenCalledWith(`${expectedUrl}?release_id=${release('dtpp').id}&mode=history`, expect.objectContaining({ cache: 'no-store', credentials: 'omit', redirect: 'error' }))
   })
   it.each(['X-FlightMap-Release-Id', 'X-FlightMap-Chart-Id'])('rejects a mismatched %s', async (header) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes, { headers: { ...headers, [header]: 'different' } })))

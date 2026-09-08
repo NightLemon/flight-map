@@ -114,7 +114,7 @@ def create_app(
         resolve(release.id, mode)
         return {"release_id": release.id, "mode": mode, "disclaimer": DISCLAIMER, **data}
 
-    def snapshot():
+    def snapshot(*, include_research=True):
         now, stored, policy = clock(), repo.snapshot(), policies()
         current, releases = {}, []
         for item in stored["releases"]:
@@ -172,7 +172,11 @@ def create_app(
             "releases": releases,
             "attempts": stored["attempts"],
             "storage_errors": stored["storage_errors"],
-            "research": {**repo.research_status(policy, at=now), "disclaimer": DISCLAIMER},
+            **(
+                {"research": {**repo.research_status(policy, at=now), "disclaimer": DISCLAIMER}}
+                if include_research
+                else {}
+            ),
             "disclaimer": DISCLAIMER,
         }
 
@@ -190,7 +194,8 @@ def create_app(
 
     @application.get("/api/v1/coverage")
     def coverage():
-        state, rows = snapshot(), []
+        # Coverage summarizes strict releases; research availability comes from /status.
+        state, rows = snapshot(include_research=False), []
         for source in load_sources(registry):
             for product in source.products:
                 candidate = state["current_releases"].get(product.id) or next(

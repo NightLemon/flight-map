@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from datetime import UTC, datetime, timedelta
 
 from flightmap_schema import RawAsset, ResearchRecord, ResearchSnapshot, ValidationReport
+from flightmap_schema.research_layers import check_capabilities, check_record
 
 from .errors import StoreError
+from .spatial import line_intersects
 
 
 def _digest_records(records):
@@ -164,8 +165,10 @@ class SnapshotRepositoryMixin:
             raise StoreError("Research snapshot processing permission is not allowed", 403)
         if report.blocking or not report.success_count:
             raise StoreError("Research validation report blocks reading", 403)
-        if item.capabilities != ["airports"] or set(report.capabilities) != {"airports"}:
-            raise StoreError("Research capabilities disagree with report", 403)
+        try:
+            check_capabilities(item, report)
+        except ValueError as exc:
+            raise StoreError(str(exc), 403) from exc
         inputs = connection.execute(
             "SELECT i.sha256,a.metadata FROM snapshot_inputs i JOIN acquisitions a "
             "ON i.acquisition_id=a.id WHERE i.snapshot_id=? ORDER BY i.sha256",
@@ -193,6 +196,7 @@ class SnapshotRepositoryMixin:
         key = (item.id, row["records_sha256"], report.success_count)
         if marker is None or cache.get(key) != marker or self._snapshot_signature() != marker:
             count, digest = 0, hashlib.sha256()
+            airport_ids, child_airports = set(), set()
             try:
                 for stored in connection.execute(
                     "SELECT id,identifier,name,metadata FROM snapshot_records "
@@ -202,30 +206,29 @@ class SnapshotRepositoryMixin:
                     r = ResearchRecord.model_validate_json(stored["metadata"])
                     if (r.id, r.identifier, r.name) != tuple(stored)[:3]:
                         raise ValueError("Stored record identity differs")
-                    if r.kind != "airport" or r.provenance.asset_sha256 not in item.input_sha256:
-                        raise ValueError("Record provenance/kind differs")
-                    geometry = r.geometry or {}
-                    coords = geometry.get("coordinates", [])
-                    if (
-                        geometry.get("type") != "Point"
-                        or not isinstance(coords, list)
-                        or len(coords) != 2
-                        or not all(type(v) in (int, float) and math.isfinite(v) for v in coords)
-                        or not -180 <= coords[0] <= 180
-                        or not -90 <= coords[1] <= 90
-                    ):
-                        raise ValueError("Invalid airport coordinates")
+                    check_record(r, item)
+                    if r.kind == "airport":
+                        airport_ids.add(r.id)
+                    elif r.kind in {"runway", "communication"}:
+                        child_airports.add(r.airport_id)
                     digest.update(json.dumps(r.model_dump(mode="json"), sort_keys=True).encode())
                     digest.update(b"\n")
                     count += 1
                 if count != report.success_count:
                     raise ValueError("Stored record count differs")
+                if not child_airports <= airport_ids:
+                    raise ValueError("Airport child refers outside the snapshot")
                 if digest.hexdigest() != row["records_sha256"]:
                     raise ValueError("Stored record checksum differs")
             except ValueError as exc:
                 raise StoreError(f"Snapshot records failed validation: {exc}", 403) from exc
             if marker is not None and self._snapshot_signature() == marker:
-                self._checked_snapshot_records = {key: marker}
+                # Keep every validated snapshot at this revision. Status visits history and
+                # active snapshots together; a single-entry cache made them evict each other.
+                self._checked_snapshot_records = {
+                    **{k: revision for k, revision in cache.items() if revision == marker},
+                    key: marker,
+                }
         return item, report
 
     def resolve_snapshot(
@@ -294,15 +297,28 @@ class SnapshotRepositoryMixin:
         if len(records) != report.success_count or len({r.id for r in records}) != len(records):
             raise StoreError("Snapshot record identities/counts disagree with report")
         if snapshot.source_id != "faa-aeronav" or snapshot.product_id != "nasr":
-            raise StoreError("Only FAA NASR airport research snapshots are supported")
-        if snapshot.capabilities != ["airports"] or set(report.capabilities) != {"airports"}:
-            raise StoreError("Snapshot/report capabilities must be NASR airports")
+            raise StoreError("Only FAA NASR research snapshots are supported")
+        try:
+            check_capabilities(snapshot, report)
+        except ValueError as exc:
+            raise StoreError(str(exc)) from exc
         for record in records:
             if (
-                record.kind != "airport"
+                (snapshot.schema_version == "research-1" and record.kind != "airport")
                 or record.provenance.asset_sha256 not in snapshot.input_sha256
             ):
                 raise StoreError("Snapshot record kind or input provenance is inconsistent")
+        if snapshot.schema_version == "research-2":
+            airport_ids = {r.id for r in records if r.kind == "airport"}
+            try:
+                for record in records:
+                    check_record(record, snapshot)
+                    if record.kind in {"runway", "communication"} and record.airport_id not in (
+                        airport_ids
+                    ):
+                        raise ValueError("Airport child refers outside the snapshot")
+            except ValueError as exc:
+                raise StoreError(str(exc)) from exc
         digest = _digest_records(records)
         with self._connect() as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -349,20 +365,38 @@ class SnapshotRepositoryMixin:
             )
         return snapshot.id
 
-    def list_snapshot_records(self, snapshot_id, *, q=None, limit=100000, offset=0, bounds=None):
+    def list_snapshot_records(
+        self, snapshot_id, *, q=None, limit=100000, offset=0, bounds=None,
+        kind=None, airport_id=None, record_id=None,
+    ):
         params = [snapshot_id]
         column = (
             "metadata" if bounds is None else "json_remove(metadata, '$.properties.raw_fields')"
         )
         sql = f"SELECT {column} FROM snapshot_records WHERE snapshot_id=?"
+        if kind is not None:
+            sql += " AND json_extract(metadata, '$.kind')=?"
+            params.append(kind)
+        if airport_id is not None:
+            sql += " AND json_extract(metadata, '$.airport_id')=?"
+            params.append(airport_id)
+        if record_id is not None:
+            sql += " AND id=?"
+            params.append(record_id)
         if bounds is not None:
             west, south, east, north = bounds
             lon = "json_extract(metadata, '$.geometry.coordinates[0]')"
             lat = "json_extract(metadata, '$.geometry.coordinates[1]')"
             longitude = f"{lon} BETWEEN ? AND ?" if west <= east else f"({lon}>=? OR {lon}<=?)"
-            sql += f" AND ({longitude}) AND {lat} BETWEEN ? AND ?"
-            params.extend([west, east, south, north])
+            sql += (
+                " AND ((json_extract(metadata, '$.geometry.type')='Point' AND "
+                f"({longitude}) AND {lat} BETWEEN ? AND ?) OR "
+                "(json_extract(metadata, '$.geometry.type')='LineString' AND "
+                "snapshot_intersects(json_extract(metadata, '$.geometry'),?,?,?,?)))"
+            )
+            params.extend([west, east, south, north, west, south, east, north])
         if q is not None:
+            sql += " AND json_extract(metadata, '$.kind') != 'communication'"
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             sql += (
                 " AND (identifier LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR "
@@ -371,6 +405,8 @@ class SnapshotRepositoryMixin:
             params.extend([f"%{escaped}%"] * 3)
         sql += " ORDER BY id LIMIT ? OFFSET ?"
         with self._connect() as connection:
+            if bounds is not None:
+                connection.create_function("snapshot_intersects", 5, line_intersects)
             try:
                 return [
                     ResearchRecord.model_validate_json(row[0])

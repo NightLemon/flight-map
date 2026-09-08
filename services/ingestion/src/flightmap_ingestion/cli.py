@@ -12,6 +12,7 @@ from flightmap_storage import Repository, StoreError
 
 from .acquisition import EvidenceRequired, build_local, load_manifest, update_product
 from .faa import FaaDiscovery
+from .nasr_layers_acquisition import build_research_layers_from_assets, update_research_layers
 from .research_acquisition import build_research_from_asset, update_research_product
 
 app = typer.Typer(help="Flight Map official FAA local research tools")
@@ -133,12 +134,26 @@ def update(
     asset_sha256: Annotated[
         str | None, typer.Option(help="Reuse an acquired NASR ZIP by its complete SHA-256")
     ] = None,
+    all_layers: Annotated[
+        bool, typer.Option(help="Build the complete same-edition NASR research layer bundle")
+    ] = False,
+    bundle_manifest: Annotated[
+        Path | None, typer.Option(exists=True, readable=True, help="JSON NASR layer asset bundle")
+    ] = None,
 ) -> None:
     """Discover, acquire, verify, and build an immutable candidate; never promote."""
     if asset_sha256 is not None and not research:
         raise typer.BadParameter("--asset-sha256 requires --research")
+    if asset_sha256 is not None and (all_layers or bundle_manifest is not None):
+        raise typer.BadParameter(
+            "--asset-sha256 cannot be used with --all-layers or --bundle-manifest"
+        )
     if research and manifest is not None:
         raise typer.BadParameter("--research and --manifest are mutually exclusive")
+    if bundle_manifest is not None and not all_layers:
+        raise typer.BadParameter("--bundle-manifest requires --all-layers")
+    if all_layers and not research:
+        raise typer.BadParameter("--all-layers requires --research")
     if research and product != "nasr":
         raise typer.BadParameter("--research currently supports only --product nasr")
     selected = _product(registry, product)
@@ -148,7 +163,16 @@ def update(
             repository,
             product,
             lambda: (
-                build_research_from_asset(repository, selected, asset_sha256, preview=preview)
+                build_research_layers_from_assets(
+                    repository,
+                    selected,
+                    json.loads(bundle_manifest.read_text(encoding="utf-8")),
+                    preview=preview,
+                )
+                if bundle_manifest is not None
+                else update_research_layers(repository, selected, preview=preview)
+                if all_layers
+                else build_research_from_asset(repository, selected, asset_sha256, preview=preview)
                 if asset_sha256 is not None
                 else update_research_product(repository, selected, preview=preview)
             ),

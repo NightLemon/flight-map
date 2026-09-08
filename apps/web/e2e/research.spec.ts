@@ -6,6 +6,12 @@ import { airport, chart, geometry, legs, procedure, release, researchSnapshot, s
 const pdf = readFileSync(new URL('../../../tests/fixtures/synthetic-two-page.pdf', import.meta.url))
 const pdfHash = createHash('sha256').update(pdf).digest('hex')
 const unavailableChart = { ...chart, id: 'unavailable-chart', name: 'SYNTHETIC UNAVAILABLE PDF' }
+const syntheticBasemap = readFileSync(new URL('../tests/fixtures/synthetic-basemap.png', import.meta.url))
+
+test.beforeEach(async ({ page }) => {
+  // Fixed tests exercise tile rendering without depending on a public tile service.
+  await page.route('https://tile.openstreetmap.org/**', (route) => route.fulfill({ body: syntheticBasemap, contentType: 'image/png' }))
+})
 
 test('date research → airport → branch → rendered PDF, zoom, split, failure and version clearing', async ({ page }) => {
   let unavailable = false
@@ -37,7 +43,10 @@ test('date research → airport → branch → rendered PDF, zoom, split, failur
   })
   await page.goto('/')
   await expect(page.getByText('API 已连接')).toBeVisible()
+  await expect(page.locator('.data-management')).not.toHaveAttribute('open')
+  await page.getByText('数据管理', { exact: true }).click()
   await expect(page.getByRole('button', { name: '日期级研究' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByText('数据管理', { exact: true }).click()
   await page.getByRole('textbox', { name: /搜索机场/ }).fill('KZZZ')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await page.getByLabel('搜索结果').getByRole('button', { name: /SYNTHETIC TEST AIRPORT/ }).click()
@@ -79,6 +88,7 @@ test('date research → airport → branch → rendered PDF, zoom, split, failur
   await expect(page.getByText('SYNTHETIC TEST AIRPORT')).toBeVisible()
   expect(requested.filter((url) => url.includes('/geometry')).every((url) => url.includes('branch_id=BRANCH+A') && url.includes(`release_id=${release('cifp').id}`))).toBe(true)
   unavailable = true
+  await page.getByText('数据管理', { exact: true }).click()
   await page.getByRole('button', { name: '重新检查', exact: true }).click()
   await expect(page.getByText('尚无可用研究资料')).toBeVisible()
   await expect(page.locator('.pdf-viewer')).toHaveCount(0)

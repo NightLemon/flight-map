@@ -39,3 +39,20 @@ SnapshotStatus 为模型字段加 `state=active|staged|history|preview|revoked|b
 R01契约；R02迁移；R03保存；R04门禁；R05激活；R06撤销；R07复用原件；R08在线更新；R09报告；R10状态；R11搜索；R12范围；R13固定版本；R14机场点；R15定位；R16目录；R17读取PDF；R18渲染；R19控制；R20并排；R21真实验收。每项测试后单独提交，仅提交自己修改的路径。
 
 2026-09-08 升级前已停止 API，并完整备份 data 到 `.cache/backups/pre-research-20260908/data`。回退须恢复完整备份，旧程序不能读取 schema 2。
+
+## Research-2 NASR 图层契约
+
+research-2 是独立于旧 research-1 的日期级 NASR 快照。它的 capabilities 为 `airports`、`runways`、`navaids`、`waypoints`、`airways`、`communications`；旧快照继续只提供机场模式。所有 research 快照仍只依据官方日期，不能提升为严格 Current，也不改变 CIFP 的获取、解析或发布门禁。
+
+`update --product nasr --research --all-layers` 发现同版 NASR 原件并构建候选。离线复现使用 `--bundle-manifest <JSON>`，其 JSON 必须提供 `APT`、`NAV`、`FIX`、`AWY`、`AWY_POINTS`、`FRQ`、`LAYOUT` 七项 SHA-256；键集合、原件身份、同版日期和内容完整性由 builder 校验。构建不激活，`--asset-sha256` 不能和 layer bundle 混用。
+
+研究层接口继续要求固定 `snapshot_id` 和 `mode=active|history|preview`，并返回同一固定版本：
+
+- `GET /api/v1/research/records/{record_id}`：读取单条记录；`record_id` 是完整记录 ID。
+- `GET /api/v1/research/airports/{airport_id}/communications`：读取该机场关联的通信记录；`airport_id` 必须是完整 airport record.id，不是 FAA 或 ICAO 短标识。
+
+地图按 `snapshot_id` 与 `mode` 查询，每层最大 500 项；默认仅机场。最小缩放为 airports Z8、runways Z10、navaids Z6、waypoints Z9、airways Z5。图例色值来自前端地图代码：机场 `#73e5ec`、跑道 `#df6e19`、导航台 `#247fc1`、航点 `#d33779`、航路 `#8154bc`。
+
+通信记录仅在 FRQ 的 `SERVICED_SITE_TYPE=AIRPORT` 且设施标识及可用国家/州上下文唯一对应 APT 机场时产生。频率只接受 VHF 108–137 或 UHF 225–400 的十进制值，或其 `R` 仅接收后缀；`receive_only` 保留该后缀，其他范围或格式保留为 unsupported。页面显示用途、扇区、备注、仅接收状态及原件溯源，不换算或猜测频率。仅 APT 坐标标注 NAD83；其他层不推断 datum。
+
+跑道线只使用两个原始跑道端坐标，缺端不补线。航路线只在 AWY2 同序点满足连续条件时生成，不跨显式 gap、dogleg、缺点或缺坐标补线。候选须经独立激活及 API/UI 验收；2026-09-08 本机结果见 [多图层验收记录](nasr-layers-2026-09-08.md)。

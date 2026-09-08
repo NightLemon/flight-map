@@ -1,10 +1,10 @@
-import { ApiError, type Mode, type Release, versionQuery } from './api'
+import { ApiError, apiUrl, type Mode, type Release, versionQuery } from './api'
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024
 
 export async function fetchChartPdf(chartId: string, release: Release, mode: Mode, signal: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
   // This endpoint accepts a stored chart identity only. Never fetch a supplied URL.
-  const response = await fetch(`/api/v1/charts/${encodeURIComponent(chartId)}/pdf?${versionQuery(release, mode)}`, {
+  const response = await fetch(apiUrl(`/charts/${encodeURIComponent(chartId)}/pdf?${versionQuery(release, mode)}`), {
     signal: AbortSignal.any([signal, AbortSignal.timeout(25000)]), cache: 'no-store', credentials: 'omit', redirect: 'error',
   })
   if (!response.ok) {

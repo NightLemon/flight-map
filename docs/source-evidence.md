@@ -60,6 +60,24 @@ JFK 目录给出 KJFK、JOHN F KENNEDY INTL，含 38 条航图记录。独立核
 
 公开字段、版本例外、结构读取边界和仍缺失的真实 SID/STAR/进近样本依据见 `docs/cifp-support.md`。尚不能将此能力标记完成；即便语法解析成功也不能发布成 Verified。
 
+## NASR research-2 同版图层原件
+
+以下 2026-09-03 官方 HTTPS 原件由本机 evidence 和构建清单固定，用于日期级 research-2 候选；它们不证明精确 UTC 有效期，也不授予再分发许可。URL 和 SHA-256 由本机记录提取：
+
+| Key | 官方 URL | SHA-256 |
+| --- | --- | --- |
+| APT | <https://nfdc.faa.gov/webContent/28DaySub/extra/03_Sep_2026_APT_CSV.zip> | `d5e4c999d4c96ab4d66d8ce9a387de8ea59b5226a6144ea1ba58758ff29bbbd9` |
+| NAV | <https://nfdc.faa.gov/webContent/28DaySub/extra/03_Sep_2026_NAV_CSV.zip> | `47202ff2824706d23f3c41fe6bd8984518ccf5aafa6d47625073b3f1c27c4c65` |
+| FIX | <https://nfdc.faa.gov/webContent/28DaySub/extra/03_Sep_2026_FIX_CSV.zip> | `17f8256dc0136f019e77d57f746a638151a52eca3a3e3df0753ab36dbd3c0af7` |
+| AWY | <https://nfdc.faa.gov/webContent/28DaySub/extra/03_Sep_2026_AWY_CSV.zip> | `656c38165c85c48efe787abf268951d628c1bee34256317a4a4b49976c883069` |
+| AWY_POINTS | <https://nfdc.faa.gov/webContent/28DaySub/2026-09-03/AWY.zip> | `aa84b56aa197853824516c2a5767848674965cad4e5827513b186248a03e0e4b` |
+| FRQ | <https://nfdc.faa.gov/webContent/28DaySub/extra/03_Sep_2026_FRQ_CSV.zip> | `a491925bda5a273b69b028dc4175105433eee414bd1faf1918b462e83d292aae` |
+| LAYOUT | <https://nfdc.faa.gov/webContent/28DaySub/2026-09-03/layout_data.zip> | `6d6bb0f7457a9035e232c4369fff45a6df62eff4ccb8c20f875ac20eb124c5bb` |
+
+`layout_data.zip` 的 NAV、FIX、AWY 字段资料是本地字段解释依据。AWY2 固定宽度点只用于已验证的连续同序点；不会用机场中心、名称相同的 NAV/FIX 或缺失点补出航路几何。APT 是唯一明确标注 NAD83 的坐标来源，不能把该 datum 推给 NAV、FIX、AWY 或 FRQ。
+
+FRQ 只以 `AIRPORT` 设施类型、设施标识和可用国家/州字段唯一关联 APT。频率只在 108–137 或 225–400 的数值范围内标为 MHz，并保留末尾 `R` 的仅接收含义；其余行是 unsupported，不会臆测单位或机场归属。
+
 ## 固定验证方法
 
 - 离线行为测试：`uv run pytest tests/test_acquisition_build.py tests/test_acquisition_discovery.py tests/test_acquisition_download.py tests/test_parsers_faa.py`。
