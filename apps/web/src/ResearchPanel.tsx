@@ -1,9 +1,10 @@
-import type { GeometryResponse, Procedure, Release, ResearchRecord, SearchResult } from './api'
+import type { GeometryResponse, Procedure, Release, ResearchRecord, SearchResult, SnapshotStatus } from './api'
 import { ChartPanel } from './ChartPanel'
 import { utc } from './session'
 
 type Props = {
   selected: SearchResult | null; release: Release | undefined
+  snapshot?: SnapshotStatus
   procedureRelease: Release | undefined
   procedures: ResearchRecord[]; detail: Procedure | null; branch: string; geometry: GeometryResponse | null
   charts: ResearchRecord[]; chartRelease: Release | undefined; chartMessage: string
@@ -12,16 +13,17 @@ type Props = {
   onClose: () => void
 }
 
-export function RecordEvidence({ record, release }: { record: ResearchRecord; release?: Release }) {
+export function RecordEvidence({ record, release, snapshot }: { record: ResearchRecord; release?: Release; snapshot?: SnapshotStatus }) {
+  const version = snapshot ?? release
   return <details className="evidence">
     <summary>来源、原始字段与有效期</summary>
     <dl>
       <dt>实体 ID</dt><dd>{record.id}</dd>
-      <dt>来源</dt><dd>{release?.source_id ?? '—'}</dd>
-      <dt>发布</dt><dd>{release?.id ?? '—'}</dd>
-      <dt>解析器</dt><dd>{release?.parser_version ?? '—'}</dd>
-      <dt>生效</dt><dd>{utc(release?.valid_from)}</dd>
-      <dt>截止</dt><dd>{utc(release?.valid_to)}</dd>
+      <dt>来源</dt><dd>{version?.source_id ?? '—'}</dd>
+      <dt>{snapshot ? '研究快照' : '发布'}</dt><dd>{version?.id ?? '—'}</dd>
+      <dt>解析器</dt><dd>{version?.parser_version ?? '—'}</dd>
+      {snapshot ? <><dt>官方日期 · 精度：日</dt><dd>{snapshot.official_effective_date} · 精确生效时刻未知</dd><dt>日期依据</dt><dd>{snapshot.date_evidence.join('\n')}</dd></> : <><dt>生效</dt><dd>{utc(release?.valid_from)}</dd><dt>截止</dt><dd>{utc(release?.valid_to)}</dd></>}
+      <dt>坐标基准</dt><dd>{String(record.properties.coordinate_datum ?? record.properties.datum ?? '未提供')}</dd>
       <dt>原件 SHA-256</dt><dd>{record.provenance.asset_sha256}</dd>
       <dt>ZIP 成员</dt><dd>{record.provenance.member ?? '—'}</dd>
       <dt>原件位置</dt><dd>{record.provenance.locator}{record.provenance.line ? ` · 行 ${record.provenance.line}` : ''}</dd>
@@ -46,7 +48,8 @@ export function ResearchPanel(props: Props) {
       <div className="section-heading"><span>{selected.kind.toUpperCase()}</span><button className="text-button" onClick={props.onClose}>关闭</button></div>
       <h2>{selected.identifier || selected.name}</h2>
       {selected.identifier && <p className="entity-name">{selected.name}</p>}
-      <RecordEvidence record={selected} release={release} />
+      {props.snapshot && <p className="inline-notice">官方日期 {props.snapshot.official_effective_date} · {String(selected.properties.coordinate_datum ?? selected.properties.datum ?? '坐标基准见原字段')}<br />精确生效时刻未知，仅用于日期级研究。</p>}
+      <RecordEvidence record={selected} release={release} snapshot={props.snapshot} />
       {props.message && <p role="status" className="inline-notice">{props.message}</p>}
       {props.loading && <p role="status" className="muted-copy">正在读取结构化程序…</p>}
       {props.procedures.length > 0 && <section>
