@@ -2,13 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AviationMap } from './AviationMap'
 import { EMPTY_MAP, type Bounds, type MapData } from './map-data'
 import {
-  assertVersion, errorMessage, getJson, isAbort, versionQuery,
+  assertSnapshot, assertVersion, errorMessage, getJson, isAbort, snapshotQuery, versionQuery,
   type Coverage, type Envelope, type FeaturesResponse, type GeometryResponse, type Layer,
   type Mode, type Procedure, type Release, type Report, type ResearchRecord,
-  type SearchResult, type Source, type Status,
+  type SearchResult, type SnapshotEnvelope, type SnapshotFeatures, type SnapshotReport, type SnapshotStatus, type Source, type Status,
 } from './api'
 import { ResearchPanel } from './ResearchPanel'
-import { expired, MODE_NAMES, PRODUCT_NAMES, PRODUCTS, releaseKey, sameChartCycle, selectedReleases, utc, type Selection } from './session'
+import { expired, MODE_NAMES, PRODUCT_NAMES, PRODUCTS, releaseKey, researchMode, sameChartCycle, selectedReleases, selectedSnapshot, snapshotChoices, utc, type Selection } from './session'
 import './App.css'
 
 const LAYERS: { id: Layer; name: string; product: string }[] = [
@@ -33,6 +33,8 @@ function App() {
   const [connection, setConnection] = useState<'loading' | 'online' | 'offline'>('loading')
   const [error, setError] = useState('')
   const [mode, setMode] = useState<Mode>('current')
+  const [browse, setBrowse] = useState<'research' | 'strict'>('research')
+  const [snapshotId, setSnapshotId] = useState('')
   const [selection, setSelection] = useState<Selection>({})
   const [layers, setLayers] = useState<Layer[]>(['airports'])
   const [bounds, setBounds] = useState<Bounds>([-180, -90, 180, 90])
@@ -54,17 +56,22 @@ function App() {
   const [researchLoading, setResearchLoading] = useState(false)
   const [chartsLoading, setChartsLoading] = useState(false)
   const [report, setReport] = useState<Report | null>(null)
+  const [snapshotReport, setSnapshotReport] = useState<SnapshotReport | null>(null)
   const epoch = useRef(0)
   const researchEpoch = useRef(0)
   const detailEpoch = useRef(0)
   const searchEpoch = useRef(0)
   const refreshEpoch = useRef(0)
   const clock = useRef({ server: 0, received: 0 })
-  const releaseJson = JSON.stringify(selectedReleases(status, mode, selection))
+  const pickedReleases = { ...selectedReleases(status, mode, selection) }
+  if (browse === 'research') delete pickedReleases.nasr
+  const releaseJson = JSON.stringify(pickedReleases)
   const releases = useMemo(() => JSON.parse(releaseJson) as Record<string, Release>, [releaseJson])
-  const key = releaseKey(releases, mode)
-  const latest = useRef({ status, mode, releases, key })
-  useLayoutEffect(() => { latest.current = { status, mode, releases, key } }, [status, mode, releases, key])
+  const snapshotJson = JSON.stringify(browse === 'research' ? selectedSnapshot(status, researchMode(mode), snapshotId) ?? null : null)
+  const snapshot = useMemo(() => JSON.parse(snapshotJson) as SnapshotStatus | null, [snapshotJson])
+  const key = `${browse}:${snapshot?.id ?? ''}:${releaseKey(releases, mode)}`
+  const latest = useRef({ status, mode, releases, key, browse, snapshot, snapshotId })
+  useLayoutEffect(() => { latest.current = { status, mode, releases, key, browse, snapshot, snapshotId } }, [status, mode, releases, key, browse, snapshot, snapshotId])
 
   const clearResearch = useCallback(() => {
     researchEpoch.current += 1
@@ -75,7 +82,7 @@ function App() {
   }, [])
   const clearData = useCallback(() => {
     epoch.current += 1; searchEpoch.current += 1
-    setFeatures(EMPTY_MAP); setTruncated(false); setResults([]); setSearchState(''); setReport(null)
+    setFeatures(EMPTY_MAP); setTruncated(false); setResults([]); setSearchState(''); setReport(null); setSnapshotReport(null); setFocus(null)
     clearResearch()
   }, [clearResearch])
   const fail = useCallback((reason: unknown) => {
@@ -93,10 +100,16 @@ function App() {
       ])
       if (token !== refreshEpoch.current) return
       const previous = latest.current
-      if (previous.mode === 'current' && releaseKey(next.current_releases, 'current') !== previous.key) clearData()
+      if (previous.mode === 'current') {
+        const nextReleases = { ...next.current_releases }
+        if (previous.browse === 'research') delete nextReleases.nasr
+        const nextSnapshot = previous.browse === 'research' ? selectedSnapshot(next, 'active', '') : undefined
+        if (`${previous.browse}:${nextSnapshot?.id ?? ''}:${releaseKey(nextReleases, 'current')}` !== previous.key) clearData()
+      }
       if (previous.mode !== 'current') {
         const ids = new Set(next.releases.filter((item) => item.state === previous.mode).map((item) => item.id))
         if (Object.values(previous.releases).some((item) => !ids.has(item.id))) clearData()
+        if (previous.snapshot && !selectedSnapshot(next, researchMode(previous.mode), previous.snapshot.id)) clearData()
       }
       clock.current = { server: Date.parse(next.current_time), received: performance.now() }
       setStatus(next); setCoverage(nextCoverage); setSources(nextSources); setConnection('online'); setError('')
@@ -135,10 +148,11 @@ function App() {
     // A new view or publication must remove the previous query before loading.
     // eslint-disable-next-line react/set-state-in-effect
     setFeatures(EMPTY_MAP); setTruncated(false)
-    const requested = LAYERS.filter((layer) => layers.includes(layer.id) && releases[layer.product]?.capabilities.includes(layer.id))
+    const requested = LAYERS.filter((layer) => layers.includes(layer.id) && (layer.id === 'airports' && snapshot || releases[layer.product]?.capabilities.includes(layer.id)))
     if (requested.length === 0) return () => controller.abort()
     const timer = window.setTimeout(() => {
       Promise.all(requested.map(async (layer) => {
+        if (layer.id === 'airports' && snapshot) return assertSnapshot(await getJson<SnapshotFeatures>(`/research/features?${snapshotQuery(snapshot, researchMode(mode), { layer: 'airports', bbox: bounds.join(',') })}`, controller.signal), snapshot, researchMode(mode))
         const release = releases[layer.product]
         return assertVersion(await getJson<FeaturesResponse>(`/features?${versionQuery(release, mode, { layer: layer.id, bbox: bounds.join(',') })}`, controller.signal), release, mode)
       })).then((payloads) => {
@@ -148,7 +162,7 @@ function App() {
       }).catch((reason: unknown) => { if (token === epoch.current && !controller.signal.aborted) fail(reason) })
     }, 180)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [releases, layers, bounds, mode, fail])
+  }, [releases, snapshot, layers, bounds, mode, fail])
 
   const search = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -157,13 +171,18 @@ function App() {
     setResults([])
     if (!text) { setSearchState('请输入机场标识或名称。'); return }
     const available = [releases.nasr, releases.cifp, releases.dtpp].filter((item): item is Release => Boolean(item))
-    if (!available.length) { setSearchState('所选版本没有可搜索的资料。'); return }
+    if (!available.length && !snapshot) { setSearchState('所选版本没有可搜索的资料。'); return }
     setSearchState('正在搜索…')
     try {
-      const payloads = await Promise.all(available.map(async (release) => {
+      const requests: Promise<SearchResult[]>[] = available.map(async (release) => {
         const payload = assertVersion(await getJson<Envelope>(`/search?${versionQuery(release, mode, { q: text })}`), release, mode)
         return payload.items.map((record) => ({ ...record, release_id: release.id, product_id: release.product_id }))
+      })
+      if (snapshot) requests.unshift(getJson<SnapshotEnvelope>(`/research/search?${snapshotQuery(snapshot, researchMode(mode), { q: text })}`).then((response) => {
+        const payload = assertSnapshot(response, snapshot, researchMode(mode))
+        return payload.items.map((record) => ({ ...record, snapshot_id: snapshot.id, product_id: 'nasr' }))
       }))
+      const payloads = await Promise.all(requests)
       if (token !== searchEpoch.current) return
       const found = payloads.flat()
       setResults(found); setSearchState(found.length ? `${found.length} 条结果` : '没有找到匹配记录。')
@@ -238,17 +257,28 @@ function App() {
     } catch (reason) { if (token === epoch.current) fail(reason) }
   }
 
-  const hasReleases = Object.keys(releases).length > 0
+  const showSnapshotReport = async () => {
+    if (!snapshot) return
+    const token = epoch.current
+    setSnapshotReport(null)
+    try {
+      const payload = await getJson<SnapshotReport>(`/research/snapshots/${encodeURIComponent(snapshot.id)}/report`)
+      if (token === epoch.current) setSnapshotReport(payload)
+    } catch (reason) { if (token === epoch.current) fail(reason) }
+  }
+
+  const hasReleases = Object.keys(releases).length > 0 || Boolean(snapshot)
   return <main className="app-shell">
     <AviationMap features={features} procedure={geometry ?? EMPTY_MAP} focus={focus} onBounds={setBounds} onFeature={(properties) => {
       const release = Object.values(releases).find((item) => item.id === properties.release_id)
-      if (!release || typeof properties.id !== 'string') return
+      const researchSnapshot = snapshot?.id === properties.snapshot_id ? snapshot : null
+      if ((!release && !researchSnapshot) || typeof properties.id !== 'string') return
       const feature = features.features.find((item) => item.properties?.id === properties.id)
       if (!feature?.properties) return
       const p = feature.properties
       void selectResult({ id: p.id, kind: p.kind, name: p.name, identifier: p.identifier, airport_id: p.airport_id, airport_ident: p.airport_ident,
         parent_id: null, branch_id: null, sequence: null, geometry: feature.geometry, properties: p, provenance: p.provenance,
-        release_id: release.id, product_id: release.product_id })
+        release_id: release?.id, snapshot_id: researchSnapshot?.id, product_id: release?.product_id ?? 'nasr' })
     }} />
     <header className="topbar glass-panel">
       <div className="brand-mark" aria-hidden="true"><span className="brand-wing">◢</span></div>
@@ -261,9 +291,22 @@ function App() {
     </header>
     <aside className="left-panel glass-panel" aria-label="资料版本与图层">
       <section><div className="section-heading"><span>资料版本</span><button className="text-button" onClick={() => void refresh(true)}>重新检查</button></div>
+        <div className="mode-tabs">{(['research', 'strict'] as const).map((item) => <button key={item} aria-pressed={browse === item} className={browse === item ? 'active' : ''} onClick={() => { if (browse !== item) { clearData(); setBrowse(item); setMode('current'); setSelection({}); setSnapshotId('') } }}>{item === 'research' ? '日期级研究' : '严格有效期'}</button>)}</div>
+        {browse === 'research' && <p className="muted-copy">机场按官方日期研究；精确生效时刻未知。陈旧资料保留日期和更新提醒。</p>}
         <div className="mode-tabs">{(['current', 'preview', 'history'] as const).map((item) => <button key={item} className={mode === item ? 'active' : ''} aria-pressed={mode === item} onClick={() => { if (mode !== item) { clearData(); setMode(item); setSelection({}) } }}>{MODE_NAMES[item]}</button>)}</div>
         {mode !== 'current' && <p className="inline-notice">{MODE_NAMES[mode]} · 需显式选择每个产品的版本。</p>}
-        {PRODUCTS.map((product) => <div className="release-row" key={product}>
+        {browse === 'research' && <div className="release-row">
+          <label className="field-label">NASR · 机场研究快照
+            {mode === 'current' ? <span className="current-release">{snapshot?.official_effective_date ?? '无活动研究快照'}</span> : <select aria-label="机场研究快照版本" value={snapshotId} onChange={(event) => { clearData(); setSnapshotId(event.target.value) }}>
+              <option value="">未选择</option>{snapshotChoices(status, researchMode(mode)).map((item) => <option key={item.id} value={item.id}>{item.official_effective_date} · {item.id.slice(-8)}</option>)}
+            </select>}
+          </label>
+          {snapshot && <><p className="version-caption">{snapshot.id}</p><p className="muted-copy">官方日期 {snapshot.official_effective_date} · 精度：日<br />预计更新 {snapshot.expected_update_date}</p>
+            {snapshot.date_status === 'update-due' && <p className="inline-notice">已到预计更新日期 · 当前仍在研究旧快照。</p>}
+            {mode !== 'current' && <p className="inline-notice">{MODE_NAMES[mode]} · {snapshot.official_effective_date}</p>}
+            <button className="text-button" onClick={() => void showSnapshotReport()}>研究验证报告 ↗</button></>}
+        </div>}
+        {PRODUCTS.filter((product) => browse !== 'research' || product !== 'nasr').map((product) => <div className="release-row" key={product}>
           <label className="field-label">{PRODUCT_NAMES[product]}
             {mode === 'current' ? <span className="current-release">{releases[product] ? `${releases[product].airac} · ${releases[product].id.slice(-8)}` : '无当前发布'}</span> :
               <select aria-label={`${PRODUCT_NAMES[product]}版本`} value={selection[product] ?? ''} onChange={(event) => { clearData(); setSelection({ ...selection, [product]: event.target.value }) }}>
@@ -275,7 +318,7 @@ function App() {
       </section>
       <section><div className="section-heading"><span>数据图层</span><small>{features.features.length} 个要素</small></div>
         <div className="layer-list">{LAYERS.map((layer) => {
-          const available = Boolean(releases[layer.product]?.capabilities.includes(layer.id))
+          const available = Boolean(layer.id === 'airports' && snapshot || releases[layer.product]?.capabilities.includes(layer.id))
           return <label key={layer.id} className={`layer-row ${available ? '' : 'disabled'}`}><input type="checkbox" checked={available && layers.includes(layer.id)} disabled={!available} onChange={(event) => setLayers(event.target.checked ? [...layers, layer.id] : layers.filter((id) => id !== layer.id))} /><span>{layer.name}</span><small>{available ? '可用' : '未支持'}</small></label>
         })}</div>
         <p className="muted-copy">选中程序分支后，地图单独显示该分支的名义几何。</p>
@@ -300,15 +343,15 @@ function App() {
       </section>
     </aside>
     {(error || searchState) && <div className="floating-message glass-panel" role="status">{error || searchState}{error && <button className="text-button" onClick={() => void refresh(true)}>重试</button>}</div>}
-    {results.length > 0 && <div className="search-results glass-panel" aria-label="搜索结果">{results.map((item) => <button key={`${item.release_id}:${item.id}`} onClick={() => void selectResult(item)}><strong>{item.identifier || item.name}</strong><span>{item.name}</span><small>{item.kind} · {item.product_id.toUpperCase()}</small></button>)}</div>}
+    {results.length > 0 && <div className="search-results glass-panel" aria-label="搜索结果">{results.map((item) => <button key={`${item.snapshot_id ?? item.release_id}:${item.id}`} onClick={() => void selectResult(item)}><strong>{item.identifier || item.name}</strong><span>{item.name}</span><small>{item.kind} · {item.product_id.toUpperCase()}{item.snapshot_id ? ' · 研究' : ''}</small></button>)}</div>}
     {!hasReleases && !selected && <section className="empty-state glass-panel">
       <div className="radar-icon" aria-hidden="true"><i /><i /></div><span className="eyebrow">FAA RESEARCH</span>
-      <h1>{connection === 'loading' ? '正在检查资料版本' : mode === 'current' ? '尚无已验证的当前资料' : '请选择资料版本'}</h1>
-      <p>{mode === 'current' ? '地图仅显示参考网格。导入官方资料、检查验证报告并显式发布后，便可开始研究。' : '在左侧为各产品选择版本。预览和历史资料始终保留版本标识。'}</p>
+      <h1>{connection === 'loading' ? '正在检查资料版本' : mode === 'current' ? browse === 'research' ? '尚无可用研究资料' : '尚无已验证的当前资料' : '请选择资料版本'}</h1>
+      <p>{mode === 'current' ? '地图仅显示参考网格。获取官方资料、查看报告并激活研究快照后，便可开始研究。' : '在左侧为各产品选择版本。预览和历史资料始终保留版本标识。'}</p>
     </section>}
     {hasReleases && !features.features.length && !error && <div className="map-caption">当前视野内没有已启用图层要素 · 可搜索定位</div>}
     {truncated && <div className="map-caption">要素数量已达查询上限，请放大地图查看完整局部资料。</div>}
-    <ResearchPanel selected={selected} release={selected ? releases[selected.product_id] : undefined} procedureRelease={releases.cifp} procedures={procedures} detail={detail} branch={branch} geometry={geometry}
+    <ResearchPanel selected={selected} snapshot={selected?.snapshot_id ? snapshot ?? undefined : undefined} release={selected ? releases[selected.product_id] : undefined} procedureRelease={releases.cifp} procedures={procedures} detail={detail} branch={branch} geometry={geometry}
       charts={procedureChosen && !sameChartCycle(releases.cifp, releases.dtpp) ? [] : charts} chartRelease={releases.dtpp} chartMessage={chartMessage} loading={researchLoading} chartsLoading={chartsLoading} message={researchMessage}
       onProcedure={(record) => void selectProcedure(record)} onBranch={(id) => void selectBranch(id)} onClose={clearResearch} />
     {report && <div className="report-backdrop"><section className="report-modal glass-panel" role="dialog" aria-modal="true" aria-label="验证报告">
@@ -319,8 +362,16 @@ function App() {
       <details><summary>周期差异报告</summary><pre>{JSON.stringify(report.diff, null, 2)}</pre></details>
       <details><summary>产品有效期依据</summary>{report.release.validity_evidence.map((evidence) => <p key={evidence}>{evidence}</p>)}</details>
     </section></div>}
-    <footer className="statusbar glass-panel"><div><span className="status-dot" /><b>{MODE_NAMES[mode]}</b></div><div>发布 <b>{status?.publication_state ?? 'UNKNOWN'}</b></div><div>AIRAC 日历 <b>{status?.airac.identifier ?? '----'}</b></div><div className="status-spacer" /><div>仅供研究 · 原件可追溯</div><div>UTC <b>{status ? new Date(status.current_time).toISOString().slice(11, 16) : '--:--'}</b></div></footer>
+    {snapshotReport && <div className="report-backdrop"><section className="report-modal glass-panel" role="dialog" aria-modal="true" aria-label="研究验证报告">
+      <div className="section-heading"><span>机场研究快照验证报告</span><button onClick={() => setSnapshotReport(null)}>关闭报告</button></div>
+      <h2>官方日期 {snapshotReport.snapshot.official_effective_date}</h2><p className="version-caption">{snapshotReport.snapshot.id}</p><p>{snapshotReport.disclaimer}</p>
+      <div className="report-counts">{Object.entries({ 输入: snapshotReport.report.input_count, 成功: snapshotReport.report.success_count, 不支持: snapshotReport.report.unsupported_count, 错误: snapshotReport.report.error_count }).map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</div>
+      <ul>{snapshotReport.report.issues.map((issue, index) => <li key={index}>{issue.code} · {issue.message}</li>)}</ul>
+      <details><summary>日期依据与原件</summary><pre>{JSON.stringify({ date_evidence: snapshotReport.snapshot.date_evidence, inputs: snapshotReport.inputs }, null, 2)}</pre></details>
+    </section></div>}
+    <footer className="statusbar glass-panel"><div><span className="status-dot" /><b>{browse === 'research' ? '日期级研究 · ' : ''}{MODE_NAMES[mode]}</b></div><div>{snapshot ? '官方日期' : '发布'} <b>{snapshot?.official_effective_date ?? status?.publication_state ?? 'UNKNOWN'}</b></div><div>AIRAC 日历 <b>{status?.airac.identifier ?? '----'}</b></div><div className="status-spacer" /><div>仅供研究 · 原件可追溯</div><div>UTC <b>{status ? new Date(status.current_time).toISOString().slice(11, 16) : '--:--'}</b></div></footer>
   </main>
 }
 
 export default App
+
