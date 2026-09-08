@@ -2,7 +2,9 @@
 
 本文件保留批准计划的全部独立任务编号，记录代码已做到哪里，以及下一位实现者仍需什么。目标为美国 FAA 资料的本机研究平台：SQLite、本地原件、只读 API、MapLibre、官方 PDF 对照；所有导入仅生成候选，Current 通过显式 CLI 提升。
 
-截至 2026-09-07，真实 d-TPP 2609 已自动获取、构建并由主任务显式提升为 Current，支持独立机场搜索与航图目录。NASR 已完成真实 19,411 条机场解析，但精确 UTC 产品有效期没有得到官方证据支持；CIFP 协议、完整语义及真实程序验证仍阻断。不能将纯几何引擎或合成样本标记为真实航空程序闭环完成。
+截至 2026-09-08，批准的 R01–R21 日期级研究方案已接通真实机场地图、搜索定位、来源资料和页面内官方航图阅读。已激活 2026-09-03 NASR 快照，19,411 条机场记录、0 解析错误；原 d-TPP 2609 Current 保留。SEA/JFK 真实浏览器流程已通过，完整证据见 [09-08 验收记录](verification-2026-09-08.md)。
+
+机场默认按日期级研究使用，精确 UTC 有效期仍为 unknown；研究指针与严格 Current 独立。下面 A01–H10 保留原精确有效期资料计划的范围，日期级研究的替代交付以 R01–R21 台账为准。CIFP 协议、完整语义及真实程序验证仍待独立推进，不能将纯几何引擎或合成样本标记为真实航空程序闭环完成。
 
 ## 状态与验证约定
 
@@ -28,10 +30,42 @@
 | E2E | `npm run test:e2e`；默认隔离合成数据浏览器验收。 |
 | LIVE-DTPP | `uv run flightmap-ingest update --product dtpp`；真实首次 staged、重复 unchanged；`uv run flightmap-ingest report --release-id <update返回的release_id>` 给出 27,428 输入 / 27,416 成功 / 12 不支持 / 0 错误。 |
 | LIVE-NASR | `uv run flightmap-ingest update --product nasr`；真实获取与解析成功，随后 needs-user-action；原件及 19,411 / 19,411 / 0 / 0 报告已保留，不生成猜测时刻发布。 |
+| RESEARCH | `.venv/Scripts/python.exe -m pytest tests/test_research_snapshots.py tests/test_research_acquisition.py tests/test_research_online.py tests/test_research_cli.py tests/test_snapshot_migration.py tests/test_snapshot_api.py tests/test_snapshot_review.py`；研究快照、命令、迁移、读取门禁与并发。 |
+| PDF | `.venv/Scripts/python.exe -m pytest tests/test_chart_pdf.py`；限定发布图纸、20 MiB/20 秒上限、类型/文件头与返回前复查。 |
 
 发布 2609 的已核实区间是 d-TPP XML 给出的 `[2026-09-03T09:01Z, 2026-10-01T09:01Z)`。它不适用于推断 NASR。12 条 DAU 类别在目录中保留为不支持警告。3197 个机场目录节点没有坐标，能力名为 `airport-catalog`；不会冒充机场地图图层。
 
 代码入口采用以下目录简称：`schema/` 表示 `packages/schema/src/flightmap_schema/`；`storage/` 表示 `packages/storage/src/flightmap_storage/`；`ingestion/` 表示 `services/ingestion/src/flightmap_ingestion/`；`web/` 表示 `apps/web/`。界面组件单文件名均位于 `apps/web/src/`。API 的完整路由前缀为 `/api/v1`，函数和字段名以 [接口契约](interface-contract.md) 与实际模型为准。
+
+## R：真实机场与航图阅读
+
+本轮遵循 [冻结契约](research-contract.md)。构建不自动激活，旧版/未来查询必须显式选择；严格 Current 的有效期门禁继续独立执行。真实 NASR 原件复用已登记 SHA，未重复下载或伪造获取事件。
+
+| 编号 | 状态 | 实际交付 | 验收依据 |
+| --- | --- | --- | --- |
+| R01 | tested | 冻结 ResearchSnapshot、API、JFK 官方坐标与两页合成 PDF。 | schema、research-contract 与独立样本。 |
+| R02 | tested | 编号迁移 002；研究表独立于原发布表。 | 旧库升级测试；真实升级前后原六张数据表逐表相等。 |
+| R03 | tested | 快照、报告、输入获取记录与机场记录不可变保存；内容决定 ID。 | RESEARCH；真实重复构建 ID 不变、获取事件数不变。 |
+| R04 | tested | 来源、报告、权限、撤销与原件完整性门禁。 | RESEARCH；独立并发评审与真实原件副本损坏检查。 |
+| R05 | tested | 事务激活；未来/坏候选拒绝，失败保留旧指针。 | RESEARCH；真实快照显式激活成功。 |
+| R06 | tested | 撤销与活动指针清理持久化。 | RESEARCH；真实资料副本撤销/重启演练。 |
+| R07 | tested | `update --product nasr --research --asset-sha256 ...` 复用已登记原件。 | 真实 SHA 零下载构建；19,411 / 19,411 / 0 / 0。 |
+| R08 | tested | 在线发现、获取、构建候选与研究获取尝试日志。 | `test_research_online.py` 固定网络样本；本轮真实构建使用 R07，不额外获取同一原件。 |
+| R09 | tested | CLI 快照报告、激活/撤销入口；HTTP 完整报告与输入依据。 | CLI 互斥参数、完整计数/溯源测试；真实报告读回。 |
+| R10 | tested | 活动/候选/未来/旧版/撤销状态与 28 天更新提醒。 | API 测试；真实副本日期边界演练，提醒不作失效时刻。 |
+| R11 | tested | 指定 snapshot_id 搜索 FAA、显式 ICAO、名称。 | RESEARCH；真实 SEA/KSEA、JFK/KJFK 查询。 |
+| R12 | tested | 指定快照的范围与跨 180° 机场 GeoJSON。 | 范围/跨界测试；真实地图查询与渲染，SQLite 先筛选范围。 |
+| R13 | tested | 单次状态响应固定 NASR 快照与各发布；切换清空旧数据。 | WEB、E2E、409 与版本清理行为断言。 |
+| R14 | tested | 真实机场点可点击；资料含官方日期、NAD83、原件及记录位置。 | SEA/JFK 实际机场点点击和来源人工核对。 |
+| R15 | tested | 搜索机场后中心定位至真实坐标。 | JFK、KJFK、SEA 浏览器流程；Z10 和经纬度断言。 |
+| R16 | tested | 使用明确 FAA 标识和相同官方日期查询航图目录。 | 日期不符不自动搭配；SEA 64 条、JFK 38 条。 |
+| R17 | tested | 指定 d-TPP 图纸的内存 PDF 读取；无任意 URL/重定向。 | PDF 测试；两张真实 PDF 身份、文件头与 SHA 检查。 |
+| R18 | tested | 固定本地 PDF.js 核心/worker/资源；页面渲染后才成功。 | WEB/E2E；SEA/JFK 非空 canvas、页数、标题人工核对。 |
+| R19 | tested | 适应宽度、缩放、页码、翻页；切换立即清除旧画面。 | 两页合成 PDF 行为；真实航图缩放及适应宽度。 |
+| R20 | tested | 桌面地图/航图可调分栏；窄屏地图和资料顺序排列，工作区可滚动。 | 桌面分栏通过；519×642 鼠标滚轮、PageDown、Tab/Enter 可到达并操作 PDF，缩放/翻页可读。 |
+| R21 | tested | 完整升级备份、真实机场/航图浏览器与生命周期副本演练。 | 真实浏览器 2/2、生命周期 10/10；239 项 Python、56 项前端、3 项隔离浏览器及静态检查/构建通过，见 09-08 验收记录。 |
+
+原件、本机截图及生命周期报告留在 data/.cache/test-results，不提交 Git。升级与回退步骤见 [本机操作](local-operations.md)；回退必须恢复升级前完整 data，旧程序不能直接读取 schema 2。
 
 ## A：依据与执行基线
 
@@ -50,7 +84,7 @@
 | --- | --- | --- | --- |
 | B01 | tested | `schema/registry.py`、`models.py`；注册表版本和来源/产品唯一性校验。 | BASE。 |
 | B02 | tested | `LocalAccessPolicy` 独立于再分发；`sources/us/faa.yml` 保留来源证据。 | BASE、STORE；未知权限与 CIFP 协议不会自动允许。 |
-| B03 | tested | AIRAC 仅作日历/标签；产品模型必须带时区，API/门禁可注入 clock。 | BASE、API；NASR 未知时刻依然阻断。 |
+| B03 | tested | AIRAC 仅作日历/标签；严格产品模型必须带时区，API/门禁可注入 clock。 | BASE、API；NASR 未知时刻仍阻断严格 Current，独立日期级研究见 R。 |
 | B04 | tested | `schema/publication.py`、`ingestion/pipeline.py` 共用发布门禁。 | BASE、STORE；未来、过期、身份错配、两处 issues 均检查。 |
 | B05 | tested | 每阶段 handler 必须产出真实必要字段，CLI 保存 `data/runs/*.json`。 | BASE、ACQUIRE；终态不可推进。 |
 | B06 | tested | 下载器仅读取 512 字节文件头，流式哈希、大小上限、ZIP 校验、失败清理。 | ACQUIRE；大文件不整体 read_bytes。 |
@@ -80,16 +114,16 @@
 | D01 | tested | `ingestion/nasr.py` 读取 APT_BASE CSV，保留所有原字段和记录位置。 | PARSE、真实 19,411 条。 |
 | D02 | tested | SITE_NO+TYPE 身份、原始 FAA/ICAO 标识、有限坐标及 NAD83 属性。 | PARSE；不补造 ICAO，不删除 FAA 目录中的境外记录。 |
 | D03 | tested | 坐标无效、身份冲突、必需字段与日期冲突明确报告。 | PARSE；计数覆盖成功与错误。 |
-| D04 | partial | `acquisition.build_local` 可通过 manifest 构建候选；自动 NASR 获取保留解析报告。 | ACQUIRE；真实 NASR stage/Current 等 C07a。 |
+| D04 | partial | 严格发布可通过 manifest 构建候选；日期级研究构建已通过 R07/R08。 | ACQUIRE、RESEARCH；真实 NASR 严格 Current 仍等 C07a。 |
 | D05 | tested | API `/status` 从 SQLite 返回真实发布、精确区间和状态。 | API、实际 d-TPP Current；NASR 不伪装可用。 |
 | D06 | tested | `/coverage` 返回来源、状态、验证计数、最近尝试及具体阻断原因。 | API、`uv run pytest tests/test_coverage_states.py`；区分未导入、失败、阻断和过期；有效 Current 不被单次更新失败隐藏。 |
-| D07 | tested | `/features?layer=airports&release_id=...&bbox=...` 有界查询。 | API 的持久化合成机场；真实 NASR 图层验收等 C07a。 |
+| D07 | tested | 严格发布有界查询与独立 `/research/features` 均已实现。 | 严格接口用持久化合成机场；真实日期级机场地图验收见 R12/R14。 |
 | D08 | tested | 按官方标识/显式 ICAO/名称搜索，返回来源作用域 ID。 | API、`uv run pytest tests/test_airport_ident_search.py`；不添加推测前缀，精确标识优先；d-TPP 无坐标目录已可搜索。 |
 | D09 | tested | `web/src/App.tsx` 接真实状态、覆盖、加载/空/离线状态。 | WEB、E2E；最终真实浏览器结果由总验收记录。 |
-| D10 | partial | `AviationMap.tsx` 可显示 API 机场点与来源/有效期。 | WEB、E2E 合成数据；真实 NASR 坐标图层仍等 C07a。 |
-| D11 | partial | 搜索结果可选择并定位有坐标的机场，无坐标目录机场明确显示资料。 | WEB、E2E；真实 NASR 搜索→定位验收仍等 C07a。 |
+| D10 | tested | `AviationMap.tsx` 显示真实 NASR 日期级研究机场点与来源/官方日期。 | WEB、真实 E2E；严格 NASR 有效期另等 C07a。 |
+| D11 | tested | 搜索结果定位真实机场；无坐标目录机场明确显示资料。 | WEB、SEA/JFK 真实 E2E；日期级研究版本固定。 |
 
-阶段 D 的工程接口已具备；“真实机场地图完整交付”仍未达到，不能用 d-TPP 无坐标目录替代该验收。
+真实机场地图已按批准的日期级研究方案交付，使用 NASR 官方坐标；原严格 NASR Current 目标仍缺 C07a 的精确时间证据。
 
 ## E：航图研究流程
 
@@ -99,8 +133,8 @@
 | E02 | tested | d-TPP 真实候选、输入 XML、所有目录记录与报告落入 SQLite。 | STORE、LIVE-DTPP。 |
 | E03 | tested | `/airports/{faa_ident}/charts` 按指定 d-TPP release 返回机场图纸。 | API；实际 JFK 的目录含 38 条记录。 |
 | E04 | tested | `ChartPanel.tsx` 按机场/类别列图纸、显示周期。 | WEB、E2E；含 SID/STAR/进近独立图纸。 |
-| E05 | tested | 原生 iframe 并排对照与始终存在的 FAA 官方新窗口链接。 | WEB、E2E；官方 PDF 地址样本 HTTP 校验通过。 |
-| E06 | tested | PDF 失败/加载超时/缺同周期资料给出明确状态，不猜最新版本。 | WEB、E2E；跨域 PDF 渲染仍取决于浏览器及 FAA 响应。 |
+| E05 | tested | 本机受限 PDF 读取与本地 PDF.js 实际渲染；FAA 官方新窗口链接保留。 | R17–R19；SEA/JFK 实际航图内容、页数与标题已验证。 |
+| E06 | tested | PDF 失败/超时/缺同日期资料状态明确；切图取消旧请求并清空。 | WEB、E2E；FAA 跨域读取由受限本机接口处理。 |
 
 ## F：CIFP 结构化资料
 
@@ -153,17 +187,17 @@
 | H02 | tested | 所有默认数据入口验证到期、撤销、权限和 Current 指针。 | STORE、API；AUDIT 检查读取结束再次验证。 |
 | H03 | tested | 前端到期定时、恢复前台与失败状态清理航空数据。 | WEB、E2E；保留参考地图及重试入口。 |
 | H04 | tested | 显式 current/preview/history，状态标签醒目，不能用历史模式读取未经提升的当前候选。 | STORE、API、WEB；跨产品图纸不悄悄换成最新周期。 |
-| H05 | tested | update 串联获取和构建、重复导入幂等、失败/需要人工输入保留原件/日志。 | ACQUIRE、LIVE-DTPP、LIVE-NASR；NASR/CIFP 阻断如实返回。 |
+| H05 | tested | update 串联获取和构建、重复导入幂等、失败/需要人工输入保留原件/日志。 | ACQUIRE、RESEARCH、LIVE-DTPP；日期级 NASR 可构建，严格 NASR/CIFP 门禁独立。 |
 | H06 | tested | `Repository.report` 与同来源、同产品中创建时间不晚于目标的最近另一候选比较，返回 previous_release_id 及 added/removed/changed；changed 比较同 ID 字段时忽略 provenance。 | STORE、LIFECYCLE：固定新增/删除/变更分别为 1，只有溯源变化时为 0。无前一候选时以空集合比较，不依赖 Current 指针，不设猜测阈值。 |
 | H07 | tested | API 和覆盖界面显示最近成功周期、精确有效期、获取失败原因及同来源官方更正公告入口。 | `test_coverage_states.py`、WEB：失败/隔离候选不覆盖最近验证通过的周期；过期成功记录不变成当前可用资料。 |
 | H08 | implemented | discovery CLI 网络失败默认非零，提供 --output 时保留 JSON；工作流 always 上传报告。 | ACQUIRE 验证本地失败报告；远程计划任务实际运行待 CI。 |
 | H09 | tested | README 包含安装启动、数据/来源目录配置、更新、提升、撤销、完整目录备份/恢复，与 CLI 和接口契约一致。 | CLI help、真实 API/Web 分别启动通过，dev.ps1 语法检查通过；LIFECYCLE 确认原目录不可用时仍可从新目录恢复并提升/撤销。 |
-| H10 | partial | 持久化/重启/预览/边界/更正/撤销的合成测试，真实 d-TPP 重复获取及显式提升。 | 全产品真实周期演练未完成；NASR 等 C07a，CIFP 等 A05/A06/F07/F11。 |
+| H10 | partial | 持久化/重启/预览/边界/更正/撤销测试、真实 d-TPP 获取提升，以及真实资料副本的研究生命周期 10/10 检查。 | NASR 日期级研究部分通过 R21；全产品严格周期演练仍等 C07a 与 CIFP A05/A06/F07/F11。 |
 
 ## 下一轮的领取顺序和停止规则
 
-1. 先解决 **C07a**：主设计者提供 NASR 产品官方精确 UTC 起止依据及明确可解析格式；在此之前只运行已有获取/解析，不添加时间常量。字段证据矛盾时保留文件哈希与引用，停止相关发布。
-2. C07a 通过后，分别领取 **D04、D10、D11、H10 的 NASR 部分**。每张卡一个真实闭环动作，使用现有 Repository、API 和 UI，不扩展基础设施。
+1. 日期级机场与航图按 **R01–R21** 的独立契约维护，日常更新只生成候选，查看报告后显式激活。更新提醒不变成官方失效时间，失败不替换可读快照。
+2. **C07a** 只阻断严格 NASR Current：主设计者提供官方精确 UTC 起止依据后，补足 D04 与 H10 的严格发布部分。它不再阻断已交付的日期级研究；不得添加猜测时间常量。
 3. CIFP 必须先由用户按官方流程处理协议，随后主设计者冻结 **A05/A06/F07/F10/F11** 的合法资料、真实预期和分支判定；这些是解析前置，不能交给低能力模型自行推断。
 4. 然后按 **F03→F04→F05→F06→F07→F08→F09→F10→F11→F12→F13→F14** 独立实现并测试。新标准与既有结构 reader 冲突时先更新支持文档和契约，不静默改原文。
 5. 最后各自完成 **F16/F17/F20、G08a/G08b/G08c/G09、真实 G 验收、完整 H10**。几何必须保留已有 IF/TF 限制；任何新腿类型需新计划，不混入本轮。
