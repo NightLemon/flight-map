@@ -17,6 +17,7 @@ from flightmap_schema import DatasetRelease, airac_period_at, load_sources
 from flightmap_schema.publication import check_publication
 from flightmap_storage import Repository, StoreError
 
+from .chart_pdf import install_chart_pdf_route
 from .research_api import install_research_routes
 
 DISCLAIMER = "仅供研究与学习，不得用于航空器导航、签派放行或替代官方飞行前简报。"
@@ -410,6 +411,7 @@ def create_app(
         return {**repo.report(id), "disclaimer": DISCLAIMER}
 
     install_research_routes(application, repo, policies, clock, DISCLAIMER)
+    install_chart_pdf_route(application, repo, resolve)
     return application
 
 
