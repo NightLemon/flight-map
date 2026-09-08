@@ -12,7 +12,7 @@ from flightmap_storage import Repository
 
 from .acquisition import EvidenceRequired, build_local, load_manifest, update_product
 from .faa import FaaDiscovery
-from .research_acquisition import build_research_from_asset
+from .research_acquisition import build_research_from_asset, update_research_product
 
 app = typer.Typer(help="Flight Map official FAA local research tools")
 RegistryOption = Annotated[Path, typer.Option(exists=True, readable=True)]
@@ -86,6 +86,7 @@ def discover_faa(
 
 def _operation(repository: Repository, product_id: str, operation, *, research: bool = False):
     record_attempt = repository.record_research_attempt if research else repository.record_attempt
+    research_context = {"mode": "research", "activation": "not-requested"} if research else {}
     try:
         result = operation()
         _echo(result)
@@ -101,6 +102,7 @@ def _operation(repository: Repository, product_id: str, operation, *, research: 
                 "status": "needs-user-action",
                 "reason": str(exc),
                 "promotion": "not-requested",
+                **research_context,
             }
         )
         raise typer.Exit(2) from exc
@@ -112,6 +114,7 @@ def _operation(repository: Repository, product_id: str, operation, *, research: 
                 "status": "failed",
                 "error": str(exc),
                 "promotion": "not-requested",
+                **research_context,
             }
         )
         raise typer.Exit(1) from exc
@@ -138,15 +141,17 @@ def update(
         raise typer.BadParameter("--research and --manifest are mutually exclusive")
     if research and product != "nasr":
         raise typer.BadParameter("--research currently supports only --product nasr")
-    if research and asset_sha256 is None:
-        raise typer.BadParameter("Research builds currently require --asset-sha256")
     selected = _product(registry, product)
     repository = Repository(data_dir)
     if research:
         _operation(
             repository,
             product,
-            lambda: build_research_from_asset(repository, selected, asset_sha256, preview=preview),
+            lambda: (
+                build_research_from_asset(repository, selected, asset_sha256, preview=preview)
+                if asset_sha256 is not None
+                else update_research_product(repository, selected, preview=preview)
+            ),
             research=True,
         )
         return

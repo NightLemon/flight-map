@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -14,8 +14,9 @@ from uuid import uuid4
 from flightmap_schema import ParseResult, ResearchSnapshot, SourceProduct
 from flightmap_storage import Repository, StoreError
 
-from .acquisition import PARSER_VERSION, EvidenceRequired, check_local_policy
-from .download import verify_download
+from .acquisition import PARSER_VERSION, EvidenceRequired, _nasr_candidate_date, check_local_policy
+from .download import AssetDownloader, verify_download
+from .faa import FaaDiscovery
 from .nasr import nasr_effective_date, parse_nasr
 
 # The archived FAA README and its exact quote are frozen in docs/source-evidence.md.
@@ -49,6 +50,7 @@ def build_research_from_asset(
     *,
     preview: bool = False,
     at: datetime | None = None,
+    expected_effective_date: date | None = None,
 ) -> dict:
     """Verify and parse a previously acquired NASR ZIP without downloading or reacquiring it."""
     _check_product(product)
@@ -75,6 +77,10 @@ def build_research_from_asset(
         run["completed"]["verify"] = {"sha256": actual_sha, "size_bytes": size}
         run["stage"] = "verify"
         effective = nasr_effective_date(stored)
+        if expected_effective_date is not None and effective != expected_effective_date:
+            raise ValueError(
+                f"NASR EFF_DATE conflicts with discovered edition date; asset retained: {sha256}"
+            )
         if (effective > now.date()) != preview:
             raise ValueError(
                 "NASR official date does not match the requested research/preview mode"
@@ -142,3 +148,54 @@ def build_research_from_asset(
         raise
     finally:
         run_path.write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def update_research_product(
+    repository: Repository,
+    product: SourceProduct,
+    *,
+    preview: bool = False,
+    at: datetime | None = None,
+) -> dict:
+    """Acquire the requested NASR edition and build an inactive research candidate."""
+    _check_product(product)
+    now = _clock(at)
+    if product.local_access.acquisition != "allowed" or product.local_access.agreement_required:
+        raise EvidenceRequired("NASR official acquisition requires user action")
+    candidates = [
+        candidate
+        for candidate in FaaDiscovery().fetch(product)
+        if candidate.kind == "asset" and candidate.role == "airport-csv"
+    ]
+    candidates = [
+        candidate
+        for candidate in candidates
+        if (_nasr_candidate_date(candidate.url) > now.date()) == preview
+    ]
+    candidates.sort(key=lambda candidate: _nasr_candidate_date(candidate.url), reverse=not preview)
+    if not candidates:
+        raise ValueError("No official NASR airport asset found for the requested research edition")
+    chosen = candidates[0]
+    # A URL may serve a same-cycle correction. Only explicit --asset-sha256 builds skip acquisition.
+    download = AssetDownloader(repository.data_dir / "downloads").acquire(
+        chosen.url, require_zip=True
+    )
+    asset = repository.store_asset(
+        download.path,
+        source_id="faa-aeronav",
+        product_id="nasr",
+        source_url=chosen.url,
+        retrieved_at=now,
+        content_type=download.content_type,
+        final_url=download.final_url,
+    )
+    if asset.sha256 != download.sha256 or asset.size_bytes != download.size_bytes:
+        raise ValueError("NASR download changed between verification and storage")
+    return build_research_from_asset(
+        repository,
+        product,
+        asset.sha256,
+        preview=preview,
+        at=now,
+        expected_effective_date=_nasr_candidate_date(chosen.url),
+    )
