@@ -12,6 +12,12 @@ vi.mock('../src/AviationMap', () => ({
 }))
 import App from '../src/App'
 
+function renderStrict() {
+  const view = render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: '严格有效期' }))
+  return view
+}
+
 type RouteOverride = (url: URL) => Promise<Response> | Response | undefined
 let override: RouteOverride | undefined
 let snapshot = status()
@@ -61,7 +67,7 @@ describe('research workspace', () => {
         notices_url: 'https://www.faa.gov/air_traffic/flight_info/aeronav/safety_alerts/' },
       { product_id: 'cifp', name: 'CIFP', status: 'not-imported', categories: [], last_successful_release: null, notices_url: null },
     ]) : undefined
-    render(<App />)
+    renderStrict()
     await screen.findByText('获取失败')
     expect(screen.getByText('最近验证通过 2608 · successful-nasr-2608')).toBeVisible()
     expect(screen.getByText('有效期 2026-08-06 09:01 UTC — 2026-09-03 09:01 UTC')).toBeVisible()
@@ -76,7 +82,7 @@ describe('research workspace', () => {
 
   it('uses the API empty state and never invents sample results', async () => {
     snapshot = status({ current_releases: {}, releases: [], publication_state: 'empty', verified_release_available: false })
-    render(<App />)
+    renderStrict()
     await screen.findByText('尚无已验证的当前资料')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ZZZ' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
@@ -86,7 +92,7 @@ describe('research workspace', () => {
   })
 
   it('searches pinned releases and shows one branch with explicit geometry gaps', async () => {
-    render(<App />)
+    renderStrict()
     await chooseAirport()
     fireEvent.click(screen.getByRole('button', { name: /SYNTHETIC SID/ }))
     const selector = await screen.findByRole('combobox', { name: '程序分支' })
@@ -106,7 +112,7 @@ describe('research workspace', () => {
   })
 
   it('clears PDF, selected records and map before a wake revalidation that fails', async () => {
-    render(<App />)
+    renderStrict()
     await chooseAirport()
     fireEvent.click(await screen.findByRole('button', { name: /SYNTHETIC DEPARTURE CHART/ }))
     expect(screen.getByTitle('官方航图 SYNTHETIC DEPARTURE CHART')).toBeInTheDocument()
@@ -120,7 +126,7 @@ describe('research workspace', () => {
   })
 
   it.each([409, 410, 403])('invalidates the complete snapshot after data error %i', async (code) => {
-    render(<App />)
+    renderStrict()
     await chooseAirport()
     override = (url) => url.pathname.includes('/procedures/') ? response({ detail: 'Publication unavailable' }, code) : undefined
     fireEvent.click(screen.getByRole('button', { name: /SYNTHETIC SID/ }))
@@ -131,7 +137,7 @@ describe('research workspace', () => {
 
   it('requires explicit history selection and unloads the old current map', async () => {
     snapshot.releases.push(release('nasr', { id: 'nasr-history', state: 'history', airac: '2608' }))
-    render(<App />)
+    renderStrict()
     await chooseAirport()
     fireEvent.click(screen.getByRole('button', { name: '历史资料', exact: true }))
     expect(screen.getByRole('combobox', { name: 'NASR · 机场版本' })).toHaveValue('')
@@ -144,7 +150,7 @@ describe('research workspace', () => {
     let finish: (value: Response) => void = () => { throw new Error('request not started') }
     override = (url) => url.pathname.endsWith('/search') && url.searchParams.get('release_id') === release('nasr').id
       ? new Promise<Response>((resolve) => { finish = resolve }) : undefined
-    render(<App />)
+    renderStrict()
     await screen.findByText('API 已连接')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ZZZ' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
@@ -158,7 +164,7 @@ describe('research workspace', () => {
     snapshot = status({ current_releases: { dtpp: release('dtpp') }, releases: [release('dtpp')] })
     const catalogAirport = { ...airport, geometry: null, properties: { catalog_only: true } }
     override = (url) => url.pathname.endsWith('/search') ? response({ release_id: release('dtpp').id, mode: 'current', items: [catalogAirport] }) : undefined
-    render(<App />)
+    renderStrict()
     await screen.findByText('API 已连接')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ZZZ' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
@@ -170,7 +176,7 @@ describe('research workspace', () => {
 
   it('removes another-cycle PDF when a procedure is selected', async () => {
     snapshot.current_releases.dtpp = release('dtpp', { airac: '2610' })
-    render(<App />)
+    renderStrict()
     await chooseAirport()
     fireEvent.click(await screen.findByRole('button', { name: /SYNTHETIC DEPARTURE CHART/ }))
     expect(screen.getByTitle('官方航图 SYNTHETIC DEPARTURE CHART')).toBeInTheDocument()
@@ -189,7 +195,7 @@ describe('research workspace', () => {
       statusReads += 1
       return response(statusReads === 1 ? snapshot : status({ current_releases: {}, releases: [], publication_state: 'empty' }))
     }
-    render(<App />)
+    renderStrict()
     await screen.findByText('API 已连接')
     await waitFor(() => expect(screen.getByTestId('map-features')).toHaveTextContent('test:airport:ZZZ'))
     await screen.findByText('尚无已验证的当前资料')
@@ -197,3 +203,4 @@ describe('research workspace', () => {
     expect(statusReads).toBeGreaterThanOrEqual(2)
   })
 })
+
