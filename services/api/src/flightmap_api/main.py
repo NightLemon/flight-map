@@ -17,6 +17,8 @@ from flightmap_schema import DatasetRelease, airac_period_at, load_sources
 from flightmap_schema.publication import check_publication
 from flightmap_storage import Repository, StoreError
 
+from .research_api import install_research_routes
+
 DISCLAIMER = "仅供研究与学习，不得用于航空器导航、签派放行或替代官方飞行前简报。"
 ViewMode = Literal["current", "preview", "history"]
 LAYERS = {
@@ -78,6 +80,7 @@ def create_app(
         allow_credentials=False,
         allow_methods=["GET"],
         allow_headers=["*"],
+        expose_headers=["X-FlightMap-Release-Id", "X-FlightMap-Chart-Id", "X-FlightMap-Pdf-Sha256"],
     )
 
     @application.middleware("http")
@@ -168,6 +171,7 @@ def create_app(
             "releases": releases,
             "attempts": stored["attempts"],
             "storage_errors": stored["storage_errors"],
+            "research": {**repo.research_status(policy, at=now), "disclaimer": DISCLAIMER},
             "disclaimer": DISCLAIMER,
         }
 
@@ -405,6 +409,7 @@ def create_app(
     def report(id: str):
         return {**repo.report(id), "disclaimer": DISCLAIMER}
 
+    install_research_routes(application, repo, policies, clock, DISCLAIMER)
     return application
 
 
