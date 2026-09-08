@@ -20,6 +20,7 @@ from .research import (
     ResearchRecord,
     ValidationReport,
 )
+from .snapshots import ResearchSnapshot
 
 __all__ = [
     "AiracPeriod",
@@ -38,5 +39,6 @@ __all__ = [
     "ParseResult",
     "Provenance",
     "ResearchRecord",
+    "ResearchSnapshot",
     "ValidationReport",
 ]
