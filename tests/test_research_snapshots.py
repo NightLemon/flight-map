@@ -1,3 +1,4 @@
+import shutil
 import sqlite3
 from datetime import date, timedelta
 
@@ -180,3 +181,22 @@ def test_snapshot_dates_are_reminders_not_exact_expiration(tmp_path):
     blocked = repo.research_status(policies, at=NOW)
     assert not blocked["active_snapshots"]
     assert all(s["date_status"] == "unavailable" for s in blocked["snapshots"])
+
+
+def test_relocated_store_uses_its_own_originals_without_rewriting_acquisition(tmp_path):
+    repo, raw, item = setup_snapshot(tmp_path)
+    restored_dir = tmp_path / "restored"
+    shutil.copytree(repo.data_dir, restored_dir)
+    restored = Repository(restored_dir)
+    acquired = restored.get_acquired_asset(
+        raw.sha256, source_id=raw.source_id, product_id=raw.product_id
+    )
+    assert acquired.storage_uri == str(restored.assets_dir / raw.sha256)
+    assert restored.snapshot_report(item.id)["inputs"][0]["storage_uri"] == raw.storage_uri
+    (repo.assets_dir / raw.sha256).unlink()
+    assert (
+        restored.resolve_snapshot(
+            item.id, product(), source_id="faa-aeronav", mode="history", at=NOW
+        )
+        == item
+    )

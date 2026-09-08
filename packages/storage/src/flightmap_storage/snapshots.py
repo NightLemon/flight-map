@@ -21,6 +21,17 @@ def _digest_records(records):
 
 
 class SnapshotRepositoryMixin:
+    def _snapshot_signature(self):
+        result = []
+        for path in [self.db_path, self.db_path.with_name(self.db_path.name + "-wal")]:
+            try:
+                stat = path.stat()
+                # SQLite recreates an empty WAL on connection open. It contains no revision.
+                result.append((stat.st_mtime_ns, stat.st_size) if stat.st_size else None)
+            except FileNotFoundError:
+                result.append(None)
+        return tuple(result)
+
     def research_status(self, policies, *, at=None):
         now = at or datetime.now(UTC)
         if now.tzinfo is None:
@@ -28,6 +39,7 @@ class SnapshotRepositoryMixin:
         today = now.astimezone(UTC).date()
         active, snapshots, errors = {}, [], []
         with self._connect() as connection:
+            marker = self._snapshot_signature()
             connection.execute("BEGIN")
             pointers = {
                 (r[0], r[1]): r[2]
@@ -49,7 +61,7 @@ class SnapshotRepositoryMixin:
                 try:
                     if policy is None:
                         raise StoreError("Snapshot source is no longer registered", 403)
-                    self._check_snapshot(connection, row, policy, item.source_id)
+                    self._check_snapshot(connection, row, policy, item.source_id, marker)
                 except StoreError as exc:
                     state = "revoked" if row["revoked_reason"] is not None else "blocked"
                     reason, date_status = str(exc), "unavailable"
@@ -117,8 +129,9 @@ class SnapshotRepositoryMixin:
             raise StoreError("Activation time must include timezone")
         with self._connect() as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            marker = self._snapshot_signature()
             row = self._snapshot_row(connection, snapshot_id)
-            item, _ = self._check_snapshot(connection, row, product, source_id)
+            item, _ = self._check_snapshot(connection, row, product, source_id, marker)
             if item.official_effective_date > now.astimezone(UTC).date():
                 raise StoreError("Future snapshot can only be viewed in explicit preview", 409)
             connection.execute(
@@ -131,7 +144,7 @@ class SnapshotRepositoryMixin:
                 (now.isoformat(), snapshot_id),
             )
 
-    def _check_snapshot(self, connection, row, product, source_id):
+    def _check_snapshot(self, connection, row, product, source_id, marker=None):
         try:
             item = ResearchSnapshot.model_validate_json(row["metadata"])
             report = ValidationReport.model_validate_json(row["report"])
@@ -176,21 +189,10 @@ class SnapshotRepositoryMixin:
 
         # Revalidate immutable records once per database/WAL revision. Raw assets above are
         # hashed on every gate, including reads, so modifying an original never hits this cache.
-        def signature():
-            result = []
-            for path in [self.db_path, self.db_path.with_name(self.db_path.name + "-wal")]:
-                try:
-                    stat = path.stat()
-                    result.append((stat.st_mtime_ns, stat.st_size))
-                except FileNotFoundError:
-                    result.append(None)
-            return tuple(result)
-
-        marker = signature()
         cache = getattr(self, "_checked_snapshot_records", {})
         key = (item.id, row["records_sha256"], report.success_count)
-        if cache.get(key) != marker:
-            records = []
+        if marker is None or cache.get(key) != marker or self._snapshot_signature() != marker:
+            count, digest = 0, hashlib.sha256()
             try:
                 for stored in connection.execute(
                     "SELECT id,identifier,name,metadata FROM snapshot_records "
@@ -206,20 +208,23 @@ class SnapshotRepositoryMixin:
                     coords = geometry.get("coordinates", [])
                     if (
                         geometry.get("type") != "Point"
+                        or not isinstance(coords, list)
                         or len(coords) != 2
-                        or not all(isinstance(v, int | float) and math.isfinite(v) for v in coords)
+                        or not all(type(v) in (int, float) and math.isfinite(v) for v in coords)
                         or not -180 <= coords[0] <= 180
                         or not -90 <= coords[1] <= 90
                     ):
                         raise ValueError("Invalid airport coordinates")
-                    records.append(r)
-                if len(records) != report.success_count:
+                    digest.update(json.dumps(r.model_dump(mode="json"), sort_keys=True).encode())
+                    digest.update(b"\n")
+                    count += 1
+                if count != report.success_count:
                     raise ValueError("Stored record count differs")
-                if _digest_records(records) != row["records_sha256"]:
+                if digest.hexdigest() != row["records_sha256"]:
                     raise ValueError("Stored record checksum differs")
             except ValueError as exc:
                 raise StoreError(f"Snapshot records failed validation: {exc}", 403) from exc
-            if signature() == marker:
+            if marker is not None and self._snapshot_signature() == marker:
                 self._checked_snapshot_records = {key: marker}
         return item, report
 
@@ -230,9 +235,10 @@ class SnapshotRepositoryMixin:
         if now.tzinfo is None or mode not in {"active", "history", "preview"}:
             raise StoreError("Aware query time and valid research mode are required")
         with self._connect() as connection:
+            marker = self._snapshot_signature()
             connection.execute("BEGIN")
             row = self._snapshot_row(connection, snapshot_id)
-            item, _ = self._check_snapshot(connection, row, product, source_id)
+            item, _ = self._check_snapshot(connection, row, product, source_id, marker)
             pointer = connection.execute(
                 "SELECT snapshot_id FROM active_snapshots WHERE source_id=? AND product_id=?",
                 (source_id, product.id),
@@ -260,7 +266,9 @@ class SnapshotRepositoryMixin:
             raw = RawAsset.model_validate_json(row[0])
             if (raw.source_id, raw.product_id, raw.sha256) != (source_id, product_id, sha):
                 raise StoreError("Acquisition identity is inconsistent", 403)
-            return raw
+            # Acquisition evidence preserves its original path in SQLite. Access follows this
+            # repository's content-addressed store after backup/restore or directory relocation.
+            return raw.model_copy(update={"storage_uri": str(self.assets_dir / sha)})
 
     def _snapshot_row(self, connection, snapshot_id):
         row = connection.execute(
