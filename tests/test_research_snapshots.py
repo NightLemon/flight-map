@@ -136,6 +136,22 @@ def test_activation_is_transactional_and_future_is_explicit(tmp_path):
     )
     reopened = Repository(repo.data_dir)
     assert reopened.resolve_snapshot(next_item.id, product(), source_id="faa-aeronav", at=NOW)
+
+
+def test_revocation_survives_restart_and_prevents_reactivation(tmp_path):
+    repo, _, item = setup_snapshot(tmp_path)
+    repo.activate_snapshot(item.id, product(), at=NOW)
+    repo.revoke_snapshot(item.id, "SYNTHETIC withdrawal")
+    repo = Repository(repo.data_dir)
+    for mode in ["active", "history", "preview"]:
+        with pytest.raises(StoreError) as error:
+            repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode=mode, at=NOW)
+        assert error.value.status_code == 410
+    with pytest.raises(StoreError, match="revoked"):
+        repo.activate_snapshot(item.id, product(), at=NOW)
+    with repo._connect() as connection:
+        assert not connection.execute("SELECT * FROM active_snapshots").fetchall()
+    assert repo.snapshot_report(item.id)["snapshot"]["revoked_reason"] == "SYNTHETIC withdrawal"
     (repo.assets_dir / raw.sha256).write_bytes(b"SYNTHETIC TEST ONLY")
     with repo._connect() as connection, connection:
         connection.execute("UPDATE research_snapshots SET report=?", ("{}",))

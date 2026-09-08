@@ -21,6 +21,18 @@ def _digest_records(records):
 
 
 class SnapshotRepositoryMixin:
+    def revoke_snapshot(self, snapshot_id, reason):
+        if not reason.strip():
+            raise StoreError("Revocation requires a reason")
+        with self._connect() as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._snapshot_row(connection, snapshot_id)
+            connection.execute(
+                "UPDATE research_snapshots SET revoked_reason=? WHERE id=?",
+                (reason, snapshot_id),
+            )
+            connection.execute("DELETE FROM active_snapshots WHERE snapshot_id=?", (snapshot_id,))
+
     def activate_snapshot(self, snapshot_id, product, *, source_id="faa-aeronav", at=None):
         now = at or datetime.now(UTC)
         if now.tzinfo is None:
