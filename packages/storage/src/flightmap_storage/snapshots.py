@@ -21,6 +21,26 @@ def _digest_records(records):
 
 
 class SnapshotRepositoryMixin:
+    def activate_snapshot(self, snapshot_id, product, *, source_id="faa-aeronav", at=None):
+        now = at or datetime.now(UTC)
+        if now.tzinfo is None:
+            raise StoreError("Activation time must include timezone")
+        with self._connect() as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._snapshot_row(connection, snapshot_id)
+            item, _ = self._check_snapshot(connection, row, product, source_id)
+            if item.official_effective_date > now.astimezone(UTC).date():
+                raise StoreError("Future snapshot can only be viewed in explicit preview", 409)
+            connection.execute(
+                "INSERT INTO active_snapshots VALUES(?,?,?) ON CONFLICT(source_id,product_id) "
+                "DO UPDATE SET snapshot_id=excluded.snapshot_id",
+                (source_id, product.id, snapshot_id),
+            )
+            connection.execute(
+                "UPDATE research_snapshots SET activated_at=? WHERE id=?",
+                (now.isoformat(), snapshot_id),
+            )
+
     def _check_snapshot(self, connection, row, product, source_id):
         try:
             item = ResearchSnapshot.model_validate_json(row["metadata"])

@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from flightmap_schema import ResearchSnapshot
@@ -105,6 +105,37 @@ def test_bad_report_original_and_missing_input_are_blocked(tmp_path):
     (repo.assets_dir / raw.sha256).write_bytes(b"corrupt")
     with pytest.raises(StoreError, match="integrity"):
         repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
+
+
+def test_activation_is_transactional_and_future_is_explicit(tmp_path):
+    repo, raw, item = setup_snapshot(tmp_path)
+    repo.activate_snapshot(item.id, product(), at=NOW)
+    next_item = snapshot(raw, parser_version="correction")
+    repo.stage_snapshot(next_item, [airport(raw)], report())
+    with repo._connect() as connection, connection:
+        connection.execute(
+            "CREATE TRIGGER fail_activation BEFORE UPDATE OF activated_at "
+            "ON research_snapshots BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="injected"):
+        repo.activate_snapshot(next_item.id, product(), at=NOW)
+    assert repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", at=NOW) == item
+    with repo._connect() as connection, connection:
+        connection.execute("DROP TRIGGER fail_activation")
+    repo.activate_snapshot(next_item.id, product(), at=NOW)
+    with pytest.raises(StoreError) as conflict:
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", at=NOW)
+    assert conflict.value.status_code == 409
+    future = snapshot(raw, official_effective_date=NOW.date() + timedelta(days=1))
+    repo.stage_snapshot(future, [airport(raw)], report())
+    with pytest.raises(StoreError, match="Future"):
+        repo.activate_snapshot(future.id, product(), at=NOW)
+    assert (
+        repo.resolve_snapshot(future.id, product(), source_id="faa-aeronav", mode="preview", at=NOW)
+        == future
+    )
+    reopened = Repository(repo.data_dir)
+    assert reopened.resolve_snapshot(next_item.id, product(), source_id="faa-aeronav", at=NOW)
     (repo.assets_dir / raw.sha256).write_bytes(b"SYNTHETIC TEST ONLY")
     with repo._connect() as connection, connection:
         connection.execute("UPDATE research_snapshots SET report=?", ("{}",))
