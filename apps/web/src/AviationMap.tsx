@@ -105,7 +105,7 @@ export function AviationMap({ features, procedure, focus, highlight = focus, onF
     } catch {
       // External WebGL initialization has failed; report it to the surrounding UI.
       // eslint-disable-next-line react/set-state-in-effect
-      setError('地图图形初始化失败；搜索、程序记录和官方航图仍可使用。')
+      setError('地图图形初始化失败；请使用搜索查看资料。')
       return
     }
     mapRef.current = map
@@ -239,7 +239,7 @@ export function AviationMap({ features, procedure, focus, highlight = focus, onF
   return <>
     <div ref={containerRef} className="map-canvas" aria-label="航空资料地图" data-feature-count={features.features.length} data-longitude={position.longitude} data-latitude={position.latitude} data-zoom={position.zoom} data-basemap-state={basemapState} data-cluster-count={clusterCount} />
     <output className="map-position" aria-label="地图中心">{position.latitude.toFixed(4)}°, {position.longitude.toFixed(4)}° · Z{position.zoom.toFixed(1)}</output>
-    {basemapState === 'error' && <div className="map-error map-basemap-notice" role="status">底图瓦片暂时无法加载；航空资料、搜索和航图仍可使用。</div>}
+    {basemapState === 'error' && <div className="map-error map-basemap-notice" role="status">底图瓦片暂时无法加载；仍可搜索和查看已加载的航空资料。</div>}
     {error && <div className="map-error" role="status">{error}</div>}
   </>
 }

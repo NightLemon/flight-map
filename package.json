@@ -10,7 +10,9 @@
     "build": "npm run build --workspace=web",
     "lint": "npm run lint --workspace=web",
     "test:web": "npm run test --workspace=web",
-    "test:e2e": "npm run test:e2e --workspace=web"
+    "test:e2e": "npm run test:e2e --workspace=web",
+    "build:pages": "node scripts/build-pages.mjs",
+    "test:pages": "npm exec --workspace=web -- playwright test --config=playwright.pages.config.ts"
   },
   "engines": {
     "node": ">=22.13.0"

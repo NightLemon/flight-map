@@ -1,0 +1,29 @@
+@import './App.css';
+
+.public-app .topbar { z-index: 20; }
+.public-app .public-left-panel { z-index: 12; }
+.public-app .public-right-panel { z-index: 12; }
+.public-app .public-close { float: right; }
+.public-app .public-right-panel > .scope-notice { margin-top: 26px; }
+.public-app .public-right-panel .official-link { margin-top: 15px; }
+.public-app .public-runways { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 20px; }
+.public-app .public-runway-list { display: grid; gap: 7px; }
+.public-app .public-runway-list article { align-items: baseline; background: rgba(9, 28, 40, .88); border: 1px solid var(--line); border-left: 3px solid #df6e19; border-radius: 4px; display: flex; gap: 8px; justify-content: space-between; padding: 10px 11px; }
+.public-app .public-runway-list b { color: #c9e2ea; font: 12px var(--mono); overflow-wrap: anywhere; }
+.public-app .public-runway-list small { color: #9db7c3; font: 10px var(--mono); text-align: right; }
+.public-app .public-properties dl { display: grid; gap: 0; margin: 0; }
+.public-app .public-properties dl > div { border-top: 1px solid var(--line); display: grid; gap: 10px; grid-template-columns: minmax(92px, .75fr) minmax(0, 1.25fr); padding: 9px 0; }
+.public-app .public-properties dt { color: #718f9e; font: 10px var(--mono); overflow-wrap: anywhere; }
+.public-app .public-properties dd { color: #c5dce4; font: 11px var(--mono); margin: 0; overflow-wrap: anywhere; }
+.public-app .source-detail { margin: 12px 0 0; }
+.public-app .floating-message button, .public-app .map-error button { margin-left: auto; }
+.public-app .map-error { align-items: center; display: flex; pointer-events: auto; }
+.public-app .public-manifest-error { align-items: center; color: var(--amber); display: flex; gap: 12px; left: 305px; padding: 10px 14px; position: absolute; right: calc(var(--desk-width) + 44px); top: 106px; z-index: 16; }
+.public-app .public-truncated { bottom: 112px; }
+
+@media (max-width: 760px) {
+  .public-app .right-panel { margin-top: 310px; }
+  .public-app .public-right-panel { min-height: 260px; }
+  .public-app .public-manifest-error { left: 20px; position: fixed; right: 20px; top: 126px; }
+  .public-app .public-truncated { top: 468px; bottom: auto; }
+}

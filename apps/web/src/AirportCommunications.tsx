@@ -2,8 +2,8 @@ import type { ResearchRecord } from './api'
 import './AirportCommunications.css'
 
 type Props = { items: ResearchRecord[]; loading: boolean; message: string }
-const SERVICES: Record<string, string> = { 'LCL/P': '塔台', 'GND/P': '地面', 'CD/P': '放行许可', ATIS: '自动终端情报', 'D-ATIS': '数字终端情报', CTAF: '通用交通咨询', UNICOM: '机场咨询', 'APCH/P DEP/P': '进近 / 离场', 'APCH/P': '进近', 'DEP/P': '离场' }
-const SERVICE_ORDER = ['D-ATIS', 'ATIS', 'LCL/P', 'GND/P', 'CD/P', 'CTAF', 'UNICOM', 'APCH/P DEP/P', 'APCH/P', 'DEP/P']
+const SERVICES: Record<string, string> = { 'LCL/P': '塔台', 'GND/P': '地面', 'CD/P': '放行许可', ATIS: '自动终端情报', 'D-ATIS': '数字终端情报', CTAF: '通用交通咨询', UNICOM: '机场咨询', 'APCH/P DEP/P': '进近 / 离场', 'APCH/P': '进近', 'DEP/P': '离场', TWR: '塔台', GND: '地面', CLD: '放行许可', APP: '进近', DEP: '离场', AWOS: '自动气象观测' }
+const SERVICE_ORDER = ['D-ATIS', 'ATIS', 'AWOS', 'LCL/P', 'TWR', 'GND/P', 'GND', 'CD/P', 'CLD', 'CTAF', 'UNICOM', 'APCH/P DEP/P', 'APCH/P', 'APP', 'DEP/P', 'DEP']
 
 function textProperty(record: ResearchRecord, key: string) {
   const value = record.properties[key]
@@ -42,7 +42,7 @@ export function AirportCommunications({ items, loading, message }: Props) {
           <details className="communication-source">
             <summary>来源详情</summary>
             <dl>
-              <dt>ZIP 成员</dt><dd>{record.provenance.member ?? '—'}</dd>
+              <dt>来源文件</dt><dd>{record.provenance.member ?? '—'}</dd>
               <dt>行号</dt><dd>{record.provenance.line ?? '—'}</dd>
               <dt>定位信息</dt><dd>{record.provenance.locator}</dd>
               <dt>原件 SHA-256</dt><dd>{record.provenance.asset_sha256}</dd>

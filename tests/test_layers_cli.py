@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from flightmap_ingestion import cli
 from flightmap_ingestion.cli import app
 from typer.testing import CliRunner
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def normalized_cli_output(output: str) -> str:
+    """Compare CLI text independently of Rich styling and newline convention."""
+    return _ANSI_ESCAPE.sub("", output).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def bundle_manifest(tmp_path):
@@ -37,7 +45,7 @@ def test_layer_flags_are_rejected_before_opening_repository(tmp_path, flags, mes
     )
 
     assert result.exit_code == 2
-    assert message in result.output
+    assert message in normalized_cli_output(result.output)
     assert not directory.exists()
 
 

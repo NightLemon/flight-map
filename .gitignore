@@ -36,3 +36,7 @@ Thumbs.db
 # Browser verification artifacts
 playwright-report/
 test-results/
+
+# Generated, licensed Pages data (built from the pinned public upstream)
+apps/web/public/reference/
+apps/web/public/.pages-reference-*/

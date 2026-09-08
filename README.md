@@ -2,6 +2,10 @@
 
 FAA 航空资料的本机研究平台：官方原件、可追溯记录、独立产品版本、地图和在线航图对照。
 
+在线访问：[GitHub Pages 公开参考版](https://nightlemon.github.io/flight-map/) · [源代码](https://github.com/NightLemon/flight-map)
+
+公开版使用标明来源的 **OurAirports Public Domain** 数据，提供全球机场、机场频率、已知两端坐标的跑道和导航台，按视野加载。它是独立社区参考层；本机 FAA 研究版的航点、航路、版本管理与 PDF 核对不在 Pages 上运行。两套资料不会混合，也不把社区数据标为 FAA 官方记录。构建与数据边界见 [GitHub Pages 部署说明](docs/github-pages.md)。
+
 > 仅供研究与学习，不得用于航空器导航、签派放行或替代官方 AIP、NOTAM 与飞行前简报。
 
 ## 已实现与实际覆盖

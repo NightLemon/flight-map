@@ -3,9 +3,14 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python:
@@ -36,3 +41,39 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the licensed public reference dataset
+        run: python scripts/build_pages_data.py
+      - run: npm run build:pages
+      - run: npm run test:pages
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: apps/web/dist
+
+  pages:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [python, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Verify this is still the latest main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PAGES_CURRENT_HEAD="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          test "$PAGES_CURRENT_HEAD" = "$GITHUB_SHA"
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
