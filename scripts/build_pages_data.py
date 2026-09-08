@@ -653,7 +653,16 @@ def build(
         write_json(staging / "manifest.json", manifest)
         if output_path.exists():
             shutil.rmtree(output_path)
-        os.replace(staging, output_path)
+        if os.name == "nt":
+            # Windows can deny renaming populated directories held by a scanner.
+            # This is build input, not the live site. Copy the immutable version
+            # first and the completion manifest last; CI deploys only after tests.
+            output_path.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(version_dir, output_path / revision)
+            shutil.copyfile(staging / "manifest.json", output_path / "manifest.json")
+            shutil.rmtree(staging)
+        else:
+            os.replace(staging, output_path)
     except Exception:
         if staging.parent == output_path.parent and staging.name.startswith(".pages-reference-"):
             shutil.rmtree(staging, ignore_errors=True)

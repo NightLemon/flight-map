@@ -7,6 +7,7 @@ export default defineConfig({
   expect: { timeout: 15000 },
   use: { baseURL: remote || 'http://127.0.0.1:5175/flight-map/', viewport: { width: 1440, height: 1000 }, trace: 'retain-on-failure' },
   webServer: remote ? undefined : {
+    env: { VITE_BASE_PATH: '/flight-map/', VITE_PUBLIC_REFERENCE: 'true' },
     command: 'npm run preview -- --host 127.0.0.1 --port 5175 --strictPort',
     url: 'http://127.0.0.1:5175/flight-map/', reuseExistingServer: !process.env.CI,
   },
