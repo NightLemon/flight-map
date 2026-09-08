@@ -105,6 +105,11 @@ def test_bad_report_original_and_missing_input_are_blocked(tmp_path):
     (repo.assets_dir / raw.sha256).write_bytes(b"corrupt")
     with pytest.raises(StoreError, match="integrity"):
         repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
+    (repo.assets_dir / raw.sha256).write_bytes(b"SYNTHETIC TEST ONLY")
+    with repo._connect() as connection, connection:
+        connection.execute("UPDATE research_snapshots SET report=?", ("{}",))
+    with pytest.raises(StoreError, match="report"):
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
 
 
 def test_activation_is_transactional_and_future_is_explicit(tmp_path):
@@ -152,8 +157,3 @@ def test_revocation_survives_restart_and_prevents_reactivation(tmp_path):
     with repo._connect() as connection:
         assert not connection.execute("SELECT * FROM active_snapshots").fetchall()
     assert repo.snapshot_report(item.id)["snapshot"]["revoked_reason"] == "SYNTHETIC withdrawal"
-    (repo.assets_dir / raw.sha256).write_bytes(b"SYNTHETIC TEST ONLY")
-    with repo._connect() as connection, connection:
-        connection.execute("UPDATE research_snapshots SET report=?", ("{}",))
-    with pytest.raises(StoreError, match="report"):
-        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
