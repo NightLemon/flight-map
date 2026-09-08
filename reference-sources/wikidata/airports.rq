@@ -1,0 +1,1 @@
+SELECT ?airport ?icao ?iata ?country ?coord ?labelZh ?labelEn WHERE { ?airport wdt:P239 ?icao. OPTIONAL { ?airport wdt:P238 ?iata } OPTIONAL { ?airport wdt:P17 ?country } OPTIONAL { ?airport wdt:P625 ?coord } OPTIONAL { ?airport rdfs:label ?labelZh FILTER(LANG(?labelZh) = "zh") } OPTIONAL { ?airport rdfs:label ?labelEn FILTER(LANG(?labelEn) = "en") } }

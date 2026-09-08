@@ -20,8 +20,22 @@
 .public-app .map-error { align-items: center; display: flex; pointer-events: auto; }
 .public-app .public-manifest-error { align-items: center; color: var(--amber); display: flex; gap: 12px; left: 305px; padding: 10px 14px; position: absolute; right: calc(var(--desk-width) + 44px); top: 106px; z-index: 16; }
 .public-app .public-truncated { bottom: 112px; }
+.public-app .public-source-count { color: #718f9e; font: 9px var(--mono); letter-spacing: .03em; margin-top: 3px; }
+.public-app .search-box select { background: #0b2230; border: 1px solid rgba(116, 174, 196, .28); border-radius: 3px; color: #b9d3dd; font: 10px var(--mono); max-width: 205px; min-width: 0; padding: 5px; }
+.public-app .public-coverage-line { border-top: 1px solid var(--line); color: #9db7c3; font: 10px/1.5 var(--mono); margin: 12px 0 0; padding-top: 12px; }
+.public-app .public-source-list { display: grid; gap: 6px; margin-top: 10px; }
+.public-app .public-source-list article { border-top: 1px solid var(--line); display: grid; gap: 3px; padding-top: 8px; }
+.public-app .public-source-list a { color: #9fcbd7; font-size: 11px; }
+.public-app .public-source-list small { color: #718f9e; font: 9px var(--mono); }
+.public-app .public-references { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 17px; }
+.public-app .public-references summary { color: #b7ccd7; cursor: pointer; font: 11px var(--mono); }
+.public-app .public-references summary small { color: #718f9e; margin-left: 6px; }
+.public-app .public-references > div { display: grid; gap: 9px; margin-top: 12px; }
+.public-app .public-references article { display: grid; gap: 3px; }
+.public-app .public-references article small { color: #8faab6; font: 10px/1.35 var(--mono); overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
+  .public-app .search-box select { flex: 0 1 145px; max-width: 145px; }
   .public-app .right-panel { margin-top: 310px; }
   .public-app .public-right-panel { min-height: 260px; }
   .public-app .public-manifest-error { left: 20px; position: fixed; right: 20px; top: 126px; }

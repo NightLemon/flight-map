@@ -46,6 +46,21 @@ test('Pages loads without a backend, starts without data pins, and JFK shows fre
   await page.screenshot({ path: 'test-results/pages-desktop.png', fullPage: true })
 })
 
+test('country browsing loads only the selected search shard and finds international airports', async ({ page }) => {
+  const requests: string[] = []
+  page.on('request', (request) => requests.push(request.url()))
+  await page.goto('./')
+  const country = page.getByLabel('限定机场搜索的国家或地区')
+  await country.selectOption('CN')
+  await expect(page.getByLabel('机场搜索结果').getByRole('button', { name: /ZBAA/ }).first()).toBeVisible()
+  expect(requests.some((url) => /reference\/[a-f0-9]{40}\/search\/CN\.json/.test(url))).toBe(true)
+  await search(page, 'ZBAA')
+  await country.selectOption('IN')
+  await search(page, 'VIDP')
+  await expect(page.getByRole('heading', { name: 'VIDP', exact: true })).toBeVisible()
+  expect(requests.some((url) => /reference\/[a-f0-9]{40}\/search\/IN\.json/.test(url))).toBe(true)
+})
+
 test('runway and navaid layers load on demand and all pins clear when layers are disabled', async ({ page }) => {
   const requests: string[] = []
   page.on('request', (request) => requests.push(request.url()))
@@ -84,7 +99,7 @@ test('refreshing to a different data revision clears the previous airport detail
     const original = await route.fetch()
     const value = await original.json()
     // A synthetic replacement manifest checks version transitions without publishing a fake dataset.
-    await route.fulfill({ json: { ...value, source: { ...value.source, revision: 'b'.repeat(40) }, tiles: { airports: [], runways: [], navaids: [] } } })
+    await route.fulfill({ json: { ...value, dataset_revision: 'b'.repeat(40), source: { ...value.source, revision: 'b'.repeat(40) }, tiles: { airports: [], runways: [], navaids: [] } } })
   })
   await page.goto('./')
   await search(page, 'KJFK')

@@ -1,0 +1,1 @@
+SELECT ?country ?code WHERE { ?country wdt:P297 ?code }

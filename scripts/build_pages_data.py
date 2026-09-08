@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 from collections import defaultdict
@@ -61,6 +63,7 @@ REQUIRED_COLUMNS = {
     },
     "navaids.csv": {"id", "ident", "name", "type", "latitude_deg", "longitude_deg"},
 }
+REFERENCE_CATALOG = Path(__file__).resolve().parents[1] / "reference-sources" / "catalog.json"
 
 
 def compact_json(value: Any) -> str:
@@ -403,11 +406,109 @@ def navaid_properties(row: dict[str, str]) -> dict[str, Any]:
     return properties
 
 
+def load_reference_sources(catalog_path: Path) -> list[dict[str, Any]]:
+    """Only load reviewed, pinned reference snapshots, with every input verified."""
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    if catalog.get("schema") != 1:
+        raise ValueError("unsupported reference source catalog")
+    result = []
+    for source in catalog["sources"]:
+        if source.get("license_status") not in {"public-domain", "permissive"}:
+            raise ValueError("unreviewed reference source cannot be published")
+        for entry in [source, *source.get("inputs", [])]:
+            relative = entry.get("snapshot", entry.get("path", ""))
+            path = (catalog_path.parent / relative).resolve()
+            if not relative or not path.is_relative_to(catalog_path.parent.resolve()):
+                raise ValueError("reference source path escapes catalog directory")
+            if sha256_file(path) != entry["sha256"]:
+                raise ValueError(f"reference input hash mismatch: {relative}")
+        rows = json.loads(gzip.decompress((catalog_path.parent / source["snapshot"]).read_bytes()))
+        if not isinstance(rows, list) or len(rows) != source["record_count"]:
+            raise ValueError("reference snapshot count mismatch")
+        result.append({**source, "records": rows})
+    return result
+
+
+def distance_km(a: list[float], b: list[float]) -> float:
+    lat1, lat2 = math.radians(a[1]), math.radians(b[1])
+    dlat, dlon = lat2 - lat1, math.radians(b[0] - a[0])
+    square = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 6371.0088 * 2 * math.asin(math.sqrt(min(1, max(0, square))))
+
+
+def associate_references(
+    airports: list[dict[str, Any]], sources: list[dict[str, Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    """Attach alternate source values without overwriting any original record.
+
+    Both sides must have one unambiguous record per (country, ICAO), and the
+    supplied coordinate must be within 3 km. Missing or conflicting evidence is
+    reported as a gap. This does not establish operational validity.
+    """
+    index: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for airport in airports:
+        p = airport["properties"]
+        key = (p.get("iso_country"), p.get("icao_id"))
+        if key[0] and key[1]:
+            index[key].append(airport)
+    references: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    reports = []
+    for source in sources:
+        candidates: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        report = {
+            "source_id": source["id"],
+            "input_records": len(source["records"]),
+            "matched": 0,
+            "ambiguous": 0,
+            "unmatched": 0,
+            "invalid": 0,
+            "coordinate_mismatch": 0,
+        }
+        for row in source["records"]:
+            point = row.get("coordinates")
+            if (
+                not re.fullmatch(r"[A-Z]{2}", row.get("country", ""))
+                or not re.fullmatch(r"[A-Z0-9]{4}", row.get("icao_id", ""))
+                or not isinstance(point, list)
+                or len(point) != 2
+                or not all(isinstance(n, (int, float)) and math.isfinite(n) for n in point)
+                or not -180 <= point[0] <= 180
+                or not -90 <= point[1] <= 90
+            ):
+                report["invalid"] += 1
+                continue
+            candidates[(row["country"], row["icao_id"])].append(row)
+        for key, rows in candidates.items():
+            matches = index.get(key, [])
+            if len(rows) != 1 or len(matches) > 1:
+                report["ambiguous"] += len(rows)
+                continue
+            if not matches:
+                report["unmatched"] += 1
+                continue
+            row, airport = rows[0], matches[0]
+            if distance_km(row["coordinates"], airport["geometry"]["coordinates"]) > 3:
+                report["coordinate_mismatch"] += 1
+                continue
+            references[airport["id"]].append(
+                {
+                    **row,
+                    "source_id": source["id"],
+                    "source_name": source["name"],
+                    "retrieved_at": source["updated_at"],
+                }
+            )
+            report["matched"] += 1
+        reports.append(report)
+    return dict(references), reports
+
+
 def build(
     source_paths: dict[str, Path],
     output_dir: Path,
     revision: str = REVISION,
     inputs: list[dict[str, str]] | None = None,
+    reference_sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build an immutable version directory from local CSV paths and return its manifest."""
     if set(source_paths) != set(INPUT_NAMES):
@@ -578,8 +679,51 @@ def build(
         layer: sorted(tiles, key=lambda value: tuple(map(int, value.split("-"))))
         for layer, tiles in tile_data.items()
     }
+    reference_sources = reference_sources or []
+    references, reference_reports = associate_references(visible_airports, reference_sources)
+    # Generator semantics and every supplementary snapshot participate in the
+    # version. Browsers must never reuse an older country's index after an update.
+    dataset_revision = hashlib.sha256(
+        compact_json(
+            {
+                "export_schema": 2,
+                "ourairports_revision": revision,
+                "inputs": input_entries,
+                "references": [
+                    {key: value for key, value in source.items() if key != "records"}
+                    for source in reference_sources
+                ],
+            }
+        ).encode()
+    ).hexdigest()[:40]
+    coverage: dict[str, dict[str, Any]] = {}
+    for airport in visible_airports:
+        country = airport["properties"].get("iso_country")
+        if not country or not re.fullmatch(r"[A-Z]{2}", country):
+            continue
+        entry = coverage.setdefault(
+            country,
+            {
+                "country": country,
+                "airports": 0,
+                "airports_with_communications": 0,
+                "runways": 0,
+                "navaids": 0,
+                "enriched_airports": 0,
+            },
+        )
+        entry["airports"] += 1
+        related = by_airport[airport["id"]]
+        entry["airports_with_communications"] += bool(related["communications"])
+        entry["runways"] += len(related["runways"])
+        entry["enriched_airports"] += bool(references.get(airport["id"]))
+    for navaid in visible_navaids:
+        country = navaid["properties"].get("iso_country")
+        if country in coverage:
+            coverage[country]["navaids"] += 1
     manifest = {
         "schema": 1,
+        "dataset_revision": dataset_revision,
         "source": {
             "name": "OurAirports",
             "url": SOURCE_PAGE,
@@ -589,6 +733,41 @@ def build(
             "updated_at": UPDATED_AT,
         },
         "inputs": input_entries,
+        "coverage": [coverage[code] for code in sorted(coverage)],
+        "sources": [
+            {
+                "id": "ourairports",
+                "name": "OurAirports",
+                "url": SOURCE_PAGE,
+                "license": "Public Domain",
+                "license_url": SOURCE_PAGE,
+                "updated_at": UPDATED_AT,
+                "scope": "机场、跑道、导航台与社区通信频率",
+                "date_kind": "updated_at",
+                "airport_count": len(visible_airports),
+            },
+            *[
+                {
+                    key: source[key]
+                    for key in (
+                        "id",
+                        "name",
+                        "url",
+                        "license",
+                        "license_url",
+                        "updated_at",
+                        "scope",
+                    )
+                }
+                | {
+                    "airport_count": report["matched"],
+                    "snapshot_sha256": source["sha256"],
+                    "date_kind": source.get("date_kind", "retrieved_at"),
+                }
+                for source, report in zip(reference_sources, reference_reports, strict=True)
+            ],
+        ],
+        "reference_reports": reference_reports,
         "counts": {
             "airports": len(visible_airports),
             "runways": sum(len(value) for value in tile_data["runways"].values()),
@@ -611,7 +790,7 @@ def build(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".pages-reference-", dir=output_path.parent))
     try:
-        version_dir = staging / revision
+        version_dir = staging / dataset_revision
         for layer, tiles in tile_data.items():
             for key, features in tiles.items():
                 write_json(
@@ -631,6 +810,22 @@ def build(
                 "municipality": item["properties"].get("municipality"),
                 "country": item["properties"].get("iso_country"),
                 "coordinates": item["geometry"]["coordinates"],
+                "type": item["properties"].get("type"),
+                "scheduled_service": item["properties"].get("scheduled_service"),
+                "aliases": sorted(
+                    {
+                        alias.strip()
+                        for alias in [
+                            *(item["properties"].get("keywords") or "").split(","),
+                            *(
+                                name
+                                for ref in references.get(item["id"], [])
+                                for name in (ref.get("name", ""), ref.get("name_zh", ""))
+                            ),
+                        ]
+                        if alias.strip()
+                    }
+                ),
             }
             for item in visible_airports
         ]
@@ -638,6 +833,15 @@ def build(
             version_dir / "search.json",
             sorted(search, key=lambda value: (value["identifier"], value["id"])),
         )
+        by_country: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for hit in search:
+            if hit["country"] in coverage:
+                by_country[hit["country"]].append(hit)
+        for code, hits in by_country.items():
+            write_json(
+                version_dir / "search" / f"{code}.json",
+                sorted(hits, key=lambda value: (value["identifier"], value["id"])),
+            )
         buckets: dict[int, dict[str, Any]] = defaultdict(dict)
         for airport_id, airport in airports.items():
             source_id = int(airport_id.rsplit(":", 1)[1])
@@ -646,10 +850,22 @@ def build(
                 "airport": airport,
                 "communications": sorted(related["communications"], key=lambda value: value["id"]),
                 "runways": sorted(related["runways"], key=lambda value: value["id"]),
+                "references": references.get(airport_id, []),
             }
         for bucket, values in buckets.items():
             write_json(version_dir / "airports" / f"{bucket}.json", values)
         shutil.copyfile(source_paths["LICENSE"], version_dir / "LICENSE")
+        write_json(
+            version_dir / "sources.json",
+            {
+                "sources": [
+                    {key: value for key, value in source.items() if key != "records"}
+                    for source in reference_sources
+                ],
+                "association_rules": "unique ICAO + country on both sides; coordinates within 3 km",
+                "reports": reference_reports,
+            },
+        )
         write_json(staging / "manifest.json", manifest)
         if output_path.exists():
             shutil.rmtree(output_path)
@@ -658,7 +874,7 @@ def build(
             # This is build input, not the live site. Copy the immutable version
             # first and the completion manifest last; CI deploys only after tests.
             output_path.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(version_dir, output_path / revision)
+            shutil.copytree(version_dir, output_path / dataset_revision)
             shutil.copyfile(staging / "manifest.json", output_path / "manifest.json")
             shutil.rmtree(staging)
         else:
@@ -676,7 +892,8 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=Path(".cache/pages-input"))
     args = parser.parse_args()
     paths, inputs = acquire_inputs(args.cache)
-    manifest = build(paths, args.output, REVISION, inputs)
+    references = load_reference_sources(REFERENCE_CATALOG)
+    manifest = build(paths, args.output, REVISION, inputs, references)
     print(
         compact_json(
             {"output": str(args.output), "revision": REVISION, "counts": manifest["counts"]}

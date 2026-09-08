@@ -16,6 +16,10 @@ FAA 航点、航路、d-TPP PDF 和本机版本管理仍在本机版。公开界
 
 ## 数据与许可依据
 
+全球扩展增加国家/地区浏览、分国家索引与 Wikidata 中文名称参考。当前覆盖和各国
+官方源核查见 [全球机场来源](global-airport-sources.md)。Wikidata 只附加名称与出处，
+不覆盖 OurAirports 的坐标或频率。
+
 2026-09-08 核对 <https://ourairports.com/data/>，其 Terms of use 明确写明：
 
 > All data is released to the Public Domain, and comes with no guarantee of accuracy or fitness for use.
@@ -35,7 +39,7 @@ npm run build:pages
 npm run test:pages
 ```
 
-生成目录 `.cache/pages-public/reference/`、下载缓存 `.cache/pages-input/` 与 `apps/web/dist/` 均由 Git 忽略。生成过程位于开发服务器监视目录之外，避免本机文件监视器干扰目录替换。普通本机模式不加载这些静态资料；公开构建只复制指定的 `.cache/pages-public/`，并在发现未完成的生成临时目录时拒绝发布。源文件不写入 Git 历史。静态数据使用上游提交 SHA 作为实际目录名，浏览器不会跨版本拼接缓存文件。
+生成目录 `.cache/pages-public/reference/`、OurAirports 缓存 `.cache/pages-input/` 与 `apps/web/dist/` 均由 Git 忽略。生成过程位于开发服务器监视目录之外。普通本机模式不加载这些资料；公开构建只复制指定的 `.cache/pages-public/`，并拒绝带有未完成临时目录的发布。Wikidata CC0 冻结原件位于 `reference-sources/`，随代码保存并校验哈希；FAA 原件不公开。静态文件使用综合 `dataset_revision` 作为目录名，OurAirports 上游 SHA 保留在 `source.revision`，浏览器不会跨版本拼接缓存。
 
 前端默认只加载小型清单。搜索索引在搜索时加载；地图使用 5° 分块，仅在达到缩放门槛时请求相交视野，每层最多 500 个要素；详情按机场 ID 分桶，点击时加载。内存仅缓存最近 32 个数据文件。移动地图或切换机场会取消旧请求。
 

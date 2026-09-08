@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -65,7 +66,7 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
     first, second = tmp_path / "first", tmp_path / "second"
     manifest = pages.build(paths, first)
     pages.build(paths, second)
-    revision = pages.REVISION
+    revision = manifest["dataset_revision"]
     assert manifest["counts"] == {"airports": 1, "runways": 2, "navaids": 1, "communications": 1}
     assert manifest["source_counts"] == {
         "airports": 3,
@@ -74,11 +75,13 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
         "communications": 1,
     }
     assert (
-        json.loads((first / "manifest.json").read_text())["inputs"][0]["sha256"]
+        json.loads((first / "manifest.json").read_text(encoding="utf-8"))["inputs"][0]["sha256"]
         == hashlib.sha256(paths["LICENSE"].read_bytes()).hexdigest()
     )
-    assert (first / revision / "LICENSE").read_text() == paths["LICENSE"].read_text()
-    assert json.loads((first / revision / "search.json").read_text()) == [
+    assert (first / revision / "LICENSE").read_text(encoding="utf-8") == paths["LICENSE"].read_text(
+        encoding="utf-8"
+    )
+    assert json.loads((first / revision / "search.json").read_text(encoding="utf-8")) == [
         {
             "coordinates": [-73.0, 40.0],
             "country": "US",
@@ -88,9 +91,12 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
             "identifier": "OPEN",
             "municipality": "Town",
             "name": "Open",
+            "aliases": [],
+            "type": "small_airport",
+            "scheduled_service": None,
         }
     ]
-    bucket = json.loads((first / revision / "airports" / "1.json").read_text())[
+    bucket = json.loads((first / revision / "airports" / "1.json").read_text(encoding="utf-8"))[
         "ourairports:airport:1"
     ]
     assert bucket["communications"][0]["parent_id"] == "ourairports:airport:1"
@@ -106,10 +112,10 @@ def test_build_is_deterministic_and_preserves_public_boundary(tmp_path: Path) ->
 
 def test_runway_date_line_is_short_and_missing_endpoints_are_not_tiled(tmp_path: Path) -> None:
     output = tmp_path / "out"
-    pages.build(write_sources(tmp_path / "input"), output)
-    tiles = output / pages.REVISION / "tiles" / "runways"
-    west = json.loads((tiles / "71-20.json").read_text())["features"]
-    east = json.loads((tiles / "0-20.json").read_text())["features"]
+    manifest = pages.build(write_sources(tmp_path / "input"), output)
+    tiles = output / manifest["dataset_revision"] / "tiles" / "runways"
+    west = json.loads((tiles / "71-20.json").read_text(encoding="utf-8"))["features"]
+    east = json.loads((tiles / "0-20.json").read_text(encoding="utf-8"))["features"]
     assert [feature["id"] for feature in west] == ["ourairports:runway:7"]
     assert [feature["id"] for feature in east] == ["ourairports:runway:7"]
     assert (
@@ -120,7 +126,7 @@ def test_runway_date_line_is_short_and_missing_endpoints_are_not_tiled(tmp_path:
             "coordinates": [[[179.0, 10.0], [180.0, 10.5]], [[-180.0, 10.5], [-179.0, 11.0]]],
         }
     )
-    assert not any("runway:8" in file.read_text() for file in tiles.rglob("*.json"))
+    assert not any("runway:8" in file.read_text(encoding="utf-8") for file in tiles.rglob("*.json"))
 
 
 def test_crossing_tiles_repeat_the_complete_feature_geometry() -> None:
@@ -179,3 +185,176 @@ def test_invalid_or_empty_inputs_fail_closed(tmp_path: Path, filename: str, cont
     with pytest.raises(ValueError):
         pages.build(paths, output)
     assert not output.exists()
+
+
+def test_country_indexes_cover_the_visible_airports_and_count_frequency_gaps(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "out"
+    manifest = pages.build(write_sources(tmp_path / "input"), output)
+    assert manifest["coverage"] == [
+        {
+            "country": "US",
+            "airports": 1,
+            "airports_with_communications": 1,
+            "runways": 2,
+            "navaids": 1,
+            "enriched_airports": 0,
+        }
+    ]
+    version = output / manifest["dataset_revision"]
+    assert json.loads((version / "search/US.json").read_text(encoding="utf-8")) == json.loads(
+        (version / "search.json").read_text(encoding="utf-8")
+    )
+    assert manifest["source"]["revision"] == pages.REVISION
+    assert manifest["dataset_revision"] != pages.REVISION
+
+
+def synthetic_reference(**changes: object) -> dict:
+    # All values here are synthetic. No live aeronautical records are fixtures.
+    return {
+        "record_id": "Q1",
+        "icao_id": "TEST",
+        "country": "US",
+        "coordinates": [-73.0, 40.0],
+        "name": "Synthetic alias",
+        "name_zh": "合成机场",
+        "url": "https://example.invalid/Q1",
+        **changes,
+    }
+
+
+def synthetic_source(records: list[dict]) -> dict:
+    return {
+        "id": "synthetic",
+        "name": "Synthetic source",
+        "records": records,
+        "updated_at": "2026-09-08T00:00:00Z",
+    }
+
+
+def test_reference_matching_rejects_country_code_ambiguity_and_distant_coordinates() -> None:
+    airport = {
+        "id": "ourairports:airport:1",
+        "geometry": {"type": "Point", "coordinates": [-73.0, 40.0]},
+        "properties": {"icao_id": "TEST", "iso_country": "US"},
+    }
+    refs, reports = pages.associate_references(
+        [airport],
+        [
+            synthetic_source(
+                [
+                    synthetic_reference(),
+                    synthetic_reference(icao_id="ELSE", country="CA"),
+                ]
+            )
+        ],
+    )
+    assert refs[airport["id"]][0]["name_zh"] == "合成机场"
+    assert reports[0]["matched"] == 1
+    assert reports[0]["unmatched"] == 1
+    assert "name_zh" not in airport["properties"]
+    for records, base, expected in [
+        ([synthetic_reference(), synthetic_reference(record_id="Q2")], [airport], "ambiguous"),
+        ([synthetic_reference()], [airport, {**airport, "id": "other"}], "ambiguous"),
+        ([synthetic_reference(coordinates=[-70.0, 40.0])], [airport], "coordinate_mismatch"),
+        ([synthetic_reference(coordinates=None)], [airport], "invalid"),
+        ([synthetic_reference(country="CA")], [airport], "unmatched"),
+    ]:
+        result, report = pages.associate_references(base, [synthetic_source(records)])
+        assert not result
+        assert report[0][expected] == len(records)
+
+
+def test_unreviewed_or_tampered_reference_snapshots_cannot_publish(tmp_path: Path) -> None:
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "sources": [
+                    {
+                        "license_status": "review-required",
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="unreviewed"):
+        pages.load_reference_sources(catalog)
+    (tmp_path / "snapshot.json.gz").write_bytes(b"tampered")
+    catalog.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "sources": [
+                    {
+                        "license_status": "public-domain",
+                        "snapshot": "snapshot.json.gz",
+                        "sha256": "0" * 64,
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="hash mismatch"):
+        pages.load_reference_sources(catalog)
+
+
+def test_checked_in_reference_snapshots_match_the_reviewed_hashes() -> None:
+    sources = pages.load_reference_sources(pages.REFERENCE_CATALOG)
+    assert sources
+    assert all(source["records"] for source in sources)
+
+
+def test_reference_export_preserves_original_fields_and_snapshot_clock(tmp_path: Path) -> None:
+    paths = write_sources(tmp_path / "input")
+    paths["airports.csv"].write_text(
+        paths["airports.csv"].read_text(encoding="utf-8").replace("KICAO", "TEST"), encoding="utf-8"
+    )
+    source = {
+        **synthetic_source([synthetic_reference()]),
+        "url": "https://example.invalid/",
+        "license": "CC0",
+        "license_url": "https://example.invalid/license",
+        "date_kind": "retrieved_at",
+        "scope": "Synthetic names only",
+        "sha256": "0" * 64,
+    }
+    output = tmp_path / "out"
+    manifest = pages.build(paths, output, reference_sources=[source])
+    assert manifest["sources"][1]["date_kind"] == "retrieved_at"
+    assert manifest["sources"][1]["airport_count"] == 1
+    assert manifest["coverage"][0]["enriched_airports"] == 1
+    version = output / manifest["dataset_revision"]
+    bucket = json.loads((version / "airports/1.json").read_text(encoding="utf-8"))
+    detail = bucket["ourairports:airport:1"]
+    assert detail["airport"]["name"] == "Open"
+    assert detail["communications"][0]["properties"]["frequency"] == "122.8"
+    assert detail["references"][0]["name_zh"] == "合成机场"
+    assert json.loads((version / "search/US.json").read_text(encoding="utf-8"))[0]["aliases"] == [
+        "Synthetic alias",
+        "合成机场",
+    ]
+    changed = pages.build(
+        paths, tmp_path / "changed", reference_sources=[{**source, "sha256": "1" * 64}]
+    )
+    assert changed["source"]["revision"] == manifest["source"]["revision"]
+    assert changed["dataset_revision"] != manifest["dataset_revision"]
+
+
+def test_wikidata_normalization_reproduces_frozen_snapshot_from_raw_inputs() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "prepare_wikidata_reference", Path("scripts/prepare_wikidata_reference.py")
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = pages.REFERENCE_CATALOG.parent / "wikidata"
+
+    def read(name: str) -> object:
+        return json.loads(gzip.decompress((root / name).read_bytes()))
+
+    assert module.normalize(read("airports.json.gz"), read("countries.json.gz")) == read(
+        "records.json.gz"
+    )

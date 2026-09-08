@@ -6,19 +6,33 @@ export type PublicLayer = 'airports' | 'runways' | 'navaids'
 export type PublicManifest = {
   schema: 1
   source: { name: string; url: string; license: string; license_url: string; revision: string; updated_at: string }
+  /** Composite export revision.  Older OurAirports-only exports use source.revision. */
+  dataset_revision?: string
   counts: Record<string, number>
   tiles: Record<PublicLayer, string[]>
   disclaimer: string
+  coverage?: Array<{ country: string; airports: number; airports_with_communications: number; runways: number; navaids: number; enriched_airports: number }>
+  sources?: Array<{ id: string; name: string; url: string; license: string; license_url: string; updated_at: string; date_kind?: 'retrieved_at' | 'updated_at'; scope: string; airport_count: number }>
 }
 export type AirportHit = {
   id: string; identifier: string; name: string; icao_id: string; iata_code: string
   municipality: string; country: string; coordinates: [number, number]
+  aliases?: string[]; type?: string; scheduled_service?: string
 }
-export type AirportDetail = { airport: ResearchRecord; communications: ResearchRecord[]; runways: ResearchRecord[] }
+export type AirportReference = {
+  source_id: string; source_name: string; url: string; record_id: string; name?: string; name_zh?: string
+  icao_id: string; country: string; coordinates?: [number, number]; retrieved_at: string
+}
+export type AirportDetail = { airport: ResearchRecord; communications: ResearchRecord[]; runways: ResearchRecord[]; references?: AirportReference[] }
 
 const cache = new Map<string, unknown>()
 let manifest: PublicManifest | undefined
 const root = `${import.meta.env.BASE_URL}reference/`
+const revisionPattern = /^[a-f0-9]{40}$/
+
+export function publicDataRevision(value: Pick<PublicManifest, 'source' | 'dataset_revision'>): string {
+  return value.dataset_revision || value.source.revision
+}
 
 async function readJson<T>(path: string, signal?: AbortSignal, cached = true): Promise<T> {
   signal?.throwIfAborted()
@@ -45,13 +59,23 @@ async function readJson<T>(path: string, signal?: AbortSignal, cached = true): P
 
 export async function loadPublicManifest(signal?: AbortSignal): Promise<PublicManifest> {
   const value = await readJson<PublicManifest>('manifest.json', signal, false)
-  if (value.schema !== 1 || !/^[a-f0-9]{40}$/.test(value.source?.revision ?? '')
+  const coverageValid = value.coverage === undefined || (Array.isArray(value.coverage) && value.coverage.every((item) =>
+    /^[A-Z]{2}$/.test(item.country) && [item.airports, item.airports_with_communications, item.runways, item.navaids, item.enriched_airports]
+      .every((count) => Number.isSafeInteger(count) && count >= 0)))
+  const sourcesValid = value.sources === undefined || (Array.isArray(value.sources) && value.sources.every((item) =>
+    typeof item.id === 'string' && typeof item.name === 'string' && typeof item.url === 'string'
+    && (item.date_kind === undefined || item.date_kind === 'retrieved_at' || item.date_kind === 'updated_at')
+    && Number.isSafeInteger(item.airport_count) && item.airport_count >= 0))
+  if (value.schema !== 1 || !revisionPattern.test(value.source?.revision ?? '')
+    || (value.dataset_revision !== undefined && !revisionPattern.test(value.dataset_revision))
     || !Number.isFinite(Date.parse(value.source?.updated_at ?? ''))
+    || !coverageValid || !sourcesValid
     || !['airports', 'runways', 'navaids'].every((layer) => Array.isArray(value.tiles?.[layer as PublicLayer])
       && value.tiles[layer as PublicLayer].every((key) => {
         const [x, y] = key.split('-').map(Number)
         return /^\d{1,2}-\d{1,2}$/.test(key) && x >= 0 && x < 72 && y >= 0 && y < 36
       }))) throw new Error('公开数据索引格式不受支持，请刷新页面。')
+  if (manifest && publicDataRevision(manifest) !== publicDataRevision(value)) cache.clear()
   manifest = value
   return value
 }
@@ -115,7 +139,7 @@ export async function loadPublicFeatures(source: PublicManifest, layers: PublicL
     for (let i = 0; i < keys.length; i += 4) {
       signal?.throwIfAborted()
       const tiles = await Promise.all(keys.slice(i, i + 4).map((key) =>
-        readJson<MapData>(`${source.source.revision}/tiles/${layer}/${key}.json`, signal)))
+        readJson<MapData>(`${publicDataRevision(source)}/tiles/${layer}/${key}.json`, signal)))
       for (const tile of tiles) for (const feature of tile.features) {
         if (publicGeometryIntersects(feature.geometry, viewport.bounds)) found.set(String(feature.id), feature)
       }
@@ -127,15 +151,31 @@ export async function loadPublicFeatures(source: PublicManifest, layers: PublicL
   return { type: 'FeatureCollection', features: parts.flatMap((part) => part.features), truncated: parts.some((part) => part.truncated) }
 }
 
-export async function searchPublicAirports(query: string, signal?: AbortSignal): Promise<AirportHit[]> {
-  const q = query.trim().toLocaleLowerCase().slice(0, 100)
-  if (!q) return []
+function searchable(value: string | undefined) {
+  return (value ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase()
+}
+
+function airportPriority(item: AirportHit) {
+  if (item.scheduled_service && item.scheduled_service !== 'no') return 0
+  if (item.type === 'large_airport') return 1
+  if (item.type === 'medium_airport') return 2
+  return 3
+}
+
+export async function searchPublicAirports(query: string, signal?: AbortSignal, country?: string): Promise<AirportHit[]> {
+  const q = searchable(query.trim().slice(0, 100))
   const source = await currentManifest(signal)
-  const index = await readJson<AirportHit[]>(`${source.source.revision}/search.json`, signal)
-  const rank = (item: AirportHit) => [item.identifier, item.icao_id, item.iata_code].some((key) => key?.toLocaleLowerCase() === q) ? 0 : 1
-  const results = index.filter((item) => [item.identifier, item.name, item.icao_id, item.iata_code, item.municipality]
-    .some((key) => key?.toLocaleLowerCase().includes(q)))
-  results.sort((a, b) => rank(a) - rank(b) || a.identifier.localeCompare(b.identifier))
+  const selectedCountry = country?.trim().toUpperCase()
+  if (selectedCountry && (!/^[A-Z]{2}$/.test(selectedCountry) || !source.coverage?.some((item) => item.country === selectedCountry))) {
+    throw new Error('无效的国家或地区代码。')
+  }
+  if (!q && !selectedCountry) return []
+  const revision = publicDataRevision(source)
+  const index = await readJson<AirportHit[]>(selectedCountry ? `${revision}/search/${selectedCountry}.json` : `${revision}/search.json`, signal)
+  const rank = (item: AirportHit) => q && [item.identifier, item.icao_id, item.iata_code].some((key) => searchable(key) === q) ? 0 : 1
+  const results = index.filter((item) => !q || [item.identifier, item.name, item.icao_id, item.iata_code, item.municipality, ...(item.aliases ?? [])]
+    .some((key) => searchable(key).includes(q)))
+  results.sort((a, b) => rank(a) - rank(b) || airportPriority(a) - airportPriority(b) || a.identifier.localeCompare(b.identifier))
   signal?.throwIfAborted()
   return results.slice(0, 50)
 }
@@ -145,7 +185,7 @@ export async function loadPublicAirport(id: string, signal?: AbortSignal): Promi
   const numeric = Number(id.split(':')[2])
   if (!Number.isSafeInteger(numeric)) throw new Error('无效的机场标识。')
   const source = await currentManifest(signal)
-  const bucket = await readJson<Record<string, AirportDetail>>(`${source.source.revision}/airports/${numeric % 256}.json`, signal)
+  const bucket = await readJson<Record<string, AirportDetail>>(`${publicDataRevision(source)}/airports/${numeric % 256}.json`, signal)
   const detail = bucket[id]
   if (!detail || detail.airport.id !== id) throw new Error('此数据快照中未找到机场详情。')
   return detail

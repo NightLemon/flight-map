@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "id": "wikidata",
+      "name": "Wikidata",
+      "url": "https://www.wikidata.org/wiki/Wikidata:Main_Page",
+      "license": "CC0 1.0",
+      "license_url": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+      "license_status": "public-domain",
+      "updated_at": "2026-09-08T11:18:30Z",
+      "date_kind": "retrieved_at",
+      "scope": "机场名称、中文别名与原始记录链接；不提供运行频率或有效期",
+      "snapshot": "wikidata/records.json.gz",
+      "record_count": 22425,
+      "sha256": "b2ff797f2916e3f72deba984905cac420e9983c9c386e4814a8614b21d6fd565",
+      "inputs": [
+        {
+          "path": "wikidata/airports.json.gz",
+          "sha256": "baa0374ced7c16bcbfcd4cac7c6af9ddf2032c4fdfafa1e9048b3f4e009741d2",
+          "uncompressed_sha256": "7c744192ab27662a6d6c7a938912bb5ff2bd056f3ca893d60fa3c59b3a13e403"
+        },
+        {
+          "path": "wikidata/countries.json.gz",
+          "sha256": "d28969a802f9a6ff59f1bdef038c9f9dee856cff66b5cc118a77f53002730fe3",
+          "uncompressed_sha256": "99a9c953dcf08fc6f2ef264a4b8acfbc33f1bf223abcebd076aae763cc4693d9"
+        }
+      ]
+    }
+  ]
+}

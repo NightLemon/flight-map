@@ -10,11 +10,15 @@
 | FAA IFR charts | 美国 | 官方航路 GeoTIFF/PDF | 通常 56 天 | 未确认前不镜像 | 否 |
 | FAA Safety Alerts | 美国 | 更正发现和紧急重建触发 | 不定期 | 仅官方链接 | 否 |
 | OurAirports | 全球 | 机场目录发现与别名 | 每日 | Public Domain，但不保证准确 | 独立参考层 |
+| Wikidata | 全球 | 机场名称、中文别名和来源链接 | 获取时点快照 | CC0 1.0；固定原件哈希 | 附加名称参考，不覆盖机场或频率 |
 | OpenAIP | 全球 | 社区参考 | 持续 | CC BY-NC 4.0 | 独立且默认关闭 |
 | OpenFlightMaps | 部分地区 | VFR 社区参考 | 区域发布 | OFMA 用户许可 | 独立且默认关闭 |
 | EUROCONTROL EAD | ECAC 及部分全球 | AIP、航图、静态/动态 AIS | AIRAC/实时 | Basic 不得用于运行；B2B/下载需协议 | 未接入 |
 
 ## 准入顺序
+
+公开版实际覆盖与官方候选见 [全球机场来源](global-airport-sources.md)。冻结参考来源在
+`reference-sources/catalog.json`，不进入本机运行级发布注册表。
 
 每个新国家必须完成：官方入口确认、再分发结论、有效期解析、最小 fixture、周期差异阈值、至少一次 AIRAC 边界演练和人工抽查。未完成时保持“仅链接”或“无有效数据”。
 

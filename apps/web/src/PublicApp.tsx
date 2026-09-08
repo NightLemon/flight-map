@@ -5,7 +5,7 @@ import { AviationMap } from './AviationMap'
 import { EMPTY_MAP, type MapData, type MapViewport } from './map-data'
 import {
   loadPublicAirport, loadPublicFeatures, loadPublicManifest, searchPublicAirports,
-  type AirportDetail, type AirportHit, type PublicLayer, type PublicManifest,
+  publicDataRevision, type AirportDetail, type AirportHit, type PublicLayer, type PublicManifest,
 } from './public-data'
 import type { ResearchRecord } from './api'
 import { WorkspaceSplitter } from './WorkspaceSplitter'
@@ -24,6 +24,11 @@ function displayDate(value: string) { return value ? value.slice(0, 10) : '未�
 function isOlderThan30Days(value: string) {
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) && Date.now() - timestamp > 30 * 24 * 60 * 60 * 1000
+}
+
+const regionNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['zh-CN'], { type: 'region' }) : null
+function countryName(country: string) {
+  try { return regionNames?.of(country) || country } catch { return country }
 }
 
 function airportFromProperties(properties: NonNullable<GeoJsonProperties>, coordinates: [number, number]): AirportHit | null {
@@ -71,6 +76,26 @@ function Properties({ properties }: { properties: NonNullable<GeoJsonProperties>
   </section>
 }
 
+function References({ items }: { items: NonNullable<AirportDetail['references']> }) {
+  if (!items.length) return null
+  return <details className="public-references">
+    <summary>补充参考来源 <small>{items.length}</small></summary>
+    <div>{items.map((item) => <article key={`${item.source_id}:${item.record_id}`}>
+      <a href={item.url} target="_blank" rel="noopener noreferrer">{item.source_name} ↗</a>
+      <small>{[item.name_zh && `${item.source_name} 中文别名：${item.name_zh}`, item.name, item.icao_id, item.country, item.retrieved_at && `获取：${displayDate(item.retrieved_at)}`, item.coordinates && `来源坐标：${item.coordinates[0].toFixed(4)}, ${item.coordinates[1].toFixed(4)}`].filter(Boolean).join(' · ')}</small>
+    </article>)}</div>
+  </details>
+}
+
+function SourceList({ sources }: { sources: NonNullable<PublicManifest['sources']> }) {
+  return <div className="public-source-list">{sources.map((item) => <article key={item.id}>
+    <a href={item.url} target="_blank" rel="noopener noreferrer">{item.name} ↗</a>
+    <small>{item.scope}</small>
+    <small><a href={item.license_url} target="_blank" rel="noopener noreferrer">{item.license}</a> · {item.date_kind === 'retrieved_at' ? '获取时间' : '更新时间'}：{displayDate(item.updated_at)}</small>
+    <small>{item.id === 'ourairports' ? `基础设施 ${item.airport_count} 个` : `附加名称参考 ${item.airport_count} 个机场`}</small>
+  </article>)}</div>
+}
+
 function PublicApp() {
   const [manifest, setManifest] = useState<PublicManifest | null>(null)
   const [manifestError, setManifestError] = useState('')
@@ -83,6 +108,7 @@ function PublicApp() {
   const [truncated, setTruncated] = useState(false)
   const [mapRefresh, setMapRefresh] = useState(0)
   const [query, setQuery] = useState('')
+  const [country, setCountry] = useState('')
   const [results, setResults] = useState<AirportHit[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchError, setSearchError] = useState('')
@@ -108,13 +134,14 @@ function PublicApp() {
     setManifestLoading(true); setManifestError('')
     void loadPublicManifest(controller.signal).then((next) => {
       if (controller.signal.aborted || manifestRequest.current !== controller) return
-      if (manifestRevision.current && manifestRevision.current !== next.source.revision) {
+      const nextRevision = publicDataRevision(next)
+      if (manifestRevision.current && manifestRevision.current !== nextRevision) {
         searchRequest.current?.abort(); airportRequest.current?.abort(); airportEpoch.current += 1
         setResults([]); setSearchLoading(false); setSearchError(''); setSearchNotice('')
         setSelectedAirport(null); setSelectedFeature(null); setDetail(null); setDetailError(''); setDetailLoading(false)
         setFeatures(EMPTY_MAP); setFocus(null); setHighlight(null)
       }
-      manifestRevision.current = next.source.revision
+      manifestRevision.current = nextRevision
       setManifest(next)
     }).catch((error: unknown) => {
       if (!controller.signal.aborted && manifestRequest.current === controller && !isAbort(error)) setManifestError(message(error))
@@ -168,25 +195,34 @@ function PublicApp() {
     })
   }, [])
 
-  const submitSearch = useCallback(async (event?: FormEvent) => {
-    event?.preventDefault()
+  const performSearch = useCallback(async (term: string, selectedCountry: string) => {
     if (!manifest || manifestLoading) return
-    const term = query.trim()
+    const text = term.trim()
     searchRequest.current?.abort()
-    if (!term) { setResults([]); setSearchNotice('请输入机场标识、IATA 代码或城市名称。'); return }
+    if (!text && !selectedCountry) { setResults([]); setSearchNotice('请选择国家或地区，或输入机场标识、IATA 代码或城市名称。'); return }
     const controller = new AbortController()
     searchRequest.current = controller
     setSearchLoading(true); setSearchError(''); setSearchNotice('')
     try {
-      const found = await searchPublicAirports(term, controller.signal)
+      const found = await searchPublicAirports(text, controller.signal, selectedCountry || undefined)
       if (controller.signal.aborted) return
       setResults(found); setSearchNotice(found.length ? `${found.length} 条结果` : '没有找到匹配机场。')
     } catch (error) {
       if (!controller.signal.aborted && !isAbort(error)) setSearchError(message(error))
     } finally { if (!controller.signal.aborted) setSearchLoading(false) }
-  }, [query, manifest, manifestLoading])
+  }, [manifest, manifestLoading])
+
+  const submitSearch = useCallback(async (event?: FormEvent) => {
+    event?.preventDefault()
+    await performSearch(query, country)
+  }, [country, performSearch, query])
 
   const dataDate = manifest ? displayDate(manifest.source.updated_at) : '加载中…'
+  const selectedCoverage = manifest?.coverage?.find((item) => item.country === country)
+  const coverageSummary = manifest?.coverage && (selectedCoverage
+    ? `${countryName(selectedCoverage.country)}：${selectedCoverage.airports} 个航空设施 · ${selectedCoverage.airports_with_communications} 个含频率记录`
+    : `全球 ${manifest.coverage.length} 个国家和地区 · ${manifest.coverage.reduce((total, item) => total + item.airports, 0)} 个航空设施`)
+  const sourceCount = manifest?.sources?.length ?? 1
   const airportOverview = Boolean(viewport && layers.includes('airports') && viewport.zoom < 8)
   const sourceAirport = detail?.airport ?? null
   const shownAirport = sourceAirport ?? (selectedAirport ? {
@@ -213,9 +249,17 @@ function PublicApp() {
     }} />
     <header className="topbar glass-panel">
       <div className="brand-mark" aria-hidden="true"><span className="brand-wing">◢</span></div>
-      <div className="brand-copy"><strong>FLIGHT MAP</strong><span>公开参考版 · OurAirports</span></div>
+      <div className="brand-copy"><strong>FLIGHT MAP</strong><span>公开参考版 · OurAirports</span><small className="public-source-count">{sourceCount} 个来源</small></div>
       <form className="search-box" onSubmit={(event) => void submitSearch(event)}><span aria-hidden="true">⌕</span>
         <input value={query} onChange={(event) => { searchRequest.current?.abort(); setSearchLoading(false); setQuery(event.target.value); setResults([]); setSearchError(''); setSearchNotice('') }} placeholder="搜索 KJFK、SEA 或城市" aria-label="搜索机场" />
+        <select value={country} onChange={(event) => {
+          const next = event.target.value
+          searchRequest.current?.abort(); setSearchLoading(false); setCountry(next); setResults([]); setSearchError(''); setSearchNotice('')
+          void performSearch(query, next)
+        }} aria-label="限定机场搜索的国家或地区">
+          <option value="">全球（仅限定机场搜索）</option>
+          {(manifest?.coverage ?? []).map((item) => <option key={item.country} value={item.country}>{countryName(item.country)} · {item.country} · {item.airports}</option>)}
+        </select>
         <button type="submit" disabled={searchLoading || manifestLoading || !manifest}>{searchLoading ? '搜索中' : '搜索'}</button>
       </form>
       <div className={`connection-state ${manifestError ? 'offline' : manifestLoading ? 'loading' : 'online'}`}><i />{manifestError ? '资料不可用' : manifestLoading ? '读取资料中' : '公开数据快照'}</div>
@@ -226,13 +270,15 @@ function PublicApp() {
         <div className="data-management-body">
           <section><div className="section-heading"><span>公开来源</span><button className="text-button" onClick={() => refreshManifest()}>重新读取</button></div>
             {manifest ? <><a href={manifest.source.url} target="_blank" rel="noopener noreferrer">{manifest.source.name} ↗</a>
-              <p className="source-detail">许可：<a href={manifest.source.license_url} target="_blank" rel="noopener noreferrer">{manifest.source.license}</a><br />修订：{manifest.source.revision || '未提供'}<br />上游更新时间：{manifest.source.updated_at || '未提供'}</p>
+              <p className="source-detail">许可：<a href={manifest.source.license_url} target="_blank" rel="noopener noreferrer">{manifest.source.license}</a><br />数据版本：{publicDataRevision(manifest) || '未提供'}<br />上游更新时间：{manifest.source.updated_at || '未提供'}</p>
+              {manifest.sources && <SourceList sources={manifest.sources} />}
               {isOlderThan30Days(manifest.source.updated_at) && <p className="data-attention">上游快照日期已超过 30 天，请先核对来源更新。</p>}
               <p className="muted-copy">此日期是上游数据快照更新时间，不代表 AIRAC 有效期。</p></> : <p className="muted-copy">{manifestLoading ? '正在读取公开数据清单…' : '清单尚不可用。'}</p>}
           </section>
         </div>
       </details>
       {manifest && isOlderThan30Days(manifest.source.updated_at) && <p className="data-attention">资料快照已超过 30 天，请核对来源更新。</p>}
+      {coverageSummary && <p className="public-coverage-line">{coverageSummary}</p>}
       <section className="map-layer-controls"><div className="section-heading"><span>数据图层</span><small>{mapCount} 个要素</small></div>
         <div className="layer-list">{LAYERS.map((layer) => <label key={layer.id} className="layer-row"><input type="checkbox" checked={layers.includes(layer.id)} onChange={(event) => setLayers(event.target.checked ? [...layers, layer.id] : layers.filter((id) => id !== layer.id))} /><i aria-hidden="true" className={`legend-swatch ${layer.id}`} /><span>{layer.name}</span><small>Z{layer.minZoom}</small></label>)}</div>
         <p className="muted-copy">机场、跑道和导航台按当前视野加载；每层最多 500 个要素。</p>
@@ -254,17 +300,17 @@ function PublicApp() {
         setSelectedAirport(null); setSelectedFeature(null); setDetail(null); setDetailError(''); setDetailLoading(false); setFocus(null); setHighlight(null)
       }}>关闭详情</button>}
       <div className="panel-accent" />
-      {!shownAirport && !selectedFeature && <><span className="eyebrow">PUBLIC REFERENCE</span><h2>选择一个机场</h2><p>搜索机场或点击地图要素查看公开参考资料。此页不提供运行、导航或放行依据。</p></>}
+      {!shownAirport && !selectedFeature && <><span className="eyebrow">GLOBAL REFERENCE</span><h2>选择一个机场</h2><p>搜索机场或点击地图要素查看全球公开参考资料。此页不提供运行、导航或放行依据。</p></>}
       {selectedFeature && <Properties properties={selectedFeature} />}
       {shownAirport && <><span className="eyebrow">OURAIRPORTS REFERENCE</span><h2>{shownAirport.identifier || shownAirport.name}</h2><p className="entity-name">{shownAirport.name}{selectedAirport?.municipality && ` · ${selectedAirport.municipality}`}{selectedAirport?.country && ` · ${selectedAirport.country}`}</p>
         {ourAirportsUrl && <a className="official-link" href={ourAirportsUrl} target="_blank" rel="noopener noreferrer">在 OurAirports 查看机场页 ↗</a>}
         {detailLoading && <p className="muted-copy" role="status">正在读取机场、频率和跑道资料…</p>}
         {detailError && <p className="inline-notice" role="status">机场详情读取失败：{detailError} <button className="text-button" onClick={() => selectedAirport && chooseAirport(selectedAirport, false)}>重试</button></p>}
-        {detail && <><AirportCommunications items={detail.communications} loading={false} message="" /><Runways items={detail.runways} /></>}
-        <section className="scope-notice"><span>!</span><p><b>非运行用途</b><br />公开参考版使用 OurAirports Public Domain 快照；使用前请以适用官方资料和运行程序核对。</p></section>
+        {detail && <><AirportCommunications items={detail.communications} loading={false} message="" /><Runways items={detail.runways} /><References items={detail.references ?? []} /></>}
+        <section className="scope-notice"><span>!</span><p><b>非运行用途</b><br />资料为全球公开参考，频率记录可能不完整；使用前请以适用官方资料和运行程序核对。</p></section>
       </>}
     </aside>
-    <footer className="statusbar glass-panel"><div><span className="status-dot" /><b>公开参考 · OurAirports</b></div><div>快照 <b>{dataDate}</b></div><div className="status-spacer" /><div>非运行用途 · 资料需独立核对</div></footer>
+    <footer className="statusbar glass-panel"><div><span className="status-dot" /><b>全球公开参考 · OurAirports</b></div><div>快照 <b>{dataDate}</b></div><div className="status-spacer" /><div>非运行用途 · 资料需独立核对</div></footer>
   </main>
 }
 

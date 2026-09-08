@@ -44,6 +44,33 @@ describe('public reference data', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
+  it('uses country shards, aliases and the composite data revision when present', async () => {
+    const datasetRevision = 'b'.repeat(40)
+    const countryManifest = {
+      ...manifest,
+      dataset_revision: datasetRevision,
+      coverage: [{ country: 'CN', airports: 2, airports_with_communications: 1, runways: 3, navaids: 1, enriched_airports: 1 }],
+      sources: [{ id: 'ourairports', name: 'OurAirports', url: 'https://ourairports.com', license: 'Public Domain', license_url: 'https://ourairports.com', updated_at: '2026-09-08T01:00:00Z', scope: 'global', airport_count: 2 }],
+    }
+    const hits = [
+      { id: 'ourairports:airport:3', identifier: 'AAAA', name: 'Small field without codes', icao_id: '', iata_code: '', type: 'small_airport', country: 'CN' },
+      { id: 'ourairports:airport:1', identifier: 'ZBAD', name: 'Beijing Daxing International Airport', icao_id: 'ZBAD', iata_code: 'PKX', aliases: ['北京大兴国际机场'], type: 'large_airport', scheduled_service: 'yes', country: 'CN' },
+      { id: 'ourairports:airport:2', identifier: 'ZBXX', name: 'Small field', aliases: ['北京测试机场'], type: 'small_airport', country: 'CN' },
+    ]
+    const fetcher = vi.fn().mockResolvedValueOnce(json(countryManifest)).mockResolvedValueOnce(json(hits))
+      .mockResolvedValueOnce(json({ 'ourairports:airport:1': { airport: { id: 'ourairports:airport:1' }, communications: [], runways: [], references: [] } }))
+    vi.stubGlobal('fetch', fetcher)
+    const api = await import('../src/public-data')
+    const source = await api.loadPublicManifest()
+    expect(api.publicDataRevision(source)).toBe(datasetRevision)
+    expect((await api.searchPublicAirports('', undefined, 'CN')).map((item) => item.identifier)).toEqual(['ZBAD', 'AAAA', 'ZBXX'])
+    expect(fetcher.mock.calls[1][0]).toBe(`/reference/${datasetRevision}/search/CN.json`)
+    expect((await api.searchPublicAirports('大兴', undefined, 'CN'))[0].identifier).toBe('ZBAD')
+    await expect(api.searchPublicAirports('', undefined, 'ZZ')).rejects.toThrow('无效')
+    expect((await api.loadPublicAirport('ourairports:airport:1')).airport.id).toBe('ourairports:airport:1')
+    expect(fetcher.mock.calls[2][0]).toBe(`/reference/${datasetRevision}/airports/1.json`)
+  })
+
   it('handles crossing lines and date-line bounds without drawing their long arc', async () => {
     const { publicGeometryIntersects: intersects } = await import('../src/public-data')
     expect(intersects({ type: 'LineString', coordinates: [[-80, 40], [-70, 40]] }, [-75, 39, -74, 41])).toBe(true)
