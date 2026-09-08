@@ -1,4 +1,4 @@
-import type { GeometryResponse, Procedure, Release, ResearchRecord, SearchResult, SnapshotStatus } from './api'
+import type { GeometryResponse, Mode, Procedure, Release, ResearchRecord, SearchResult, SnapshotStatus } from './api'
 import { ChartPanel } from './ChartPanel'
 import { utc } from './session'
 
@@ -11,6 +11,7 @@ type Props = {
   loading: boolean; chartsLoading: boolean; message: string
   onProcedure: (record: ResearchRecord) => void; onBranch: (branch: string) => void
   onClose: () => void
+  mode?: Mode; onInvalid?: (error: unknown) => void
 }
 
 export function RecordEvidence({ record, release, snapshot }: { record: ResearchRecord; release?: Release; snapshot?: SnapshotStatus }) {
@@ -80,7 +81,7 @@ export function ResearchPanel(props: Props) {
           </div>
         </>}
       </section>}
-      {(selected.kind === 'airport' || selected.kind === 'procedure') && <ChartPanel charts={props.charts} release={props.chartRelease} loading={props.chartsLoading} message={props.chartMessage} />}
+      {(selected.kind === 'airport' || selected.kind === 'procedure') && <ChartPanel charts={props.charts} release={props.chartRelease} loading={props.chartsLoading} message={props.chartMessage} mode={props.mode} onInvalid={props.onInvalid} />}
     </>}
   </aside>
 }
