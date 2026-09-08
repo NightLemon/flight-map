@@ -1,7 +1,8 @@
 """Read-only snapshot endpoints. Every response retains the requested research version."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
+from fastapi import Query
 from flightmap_storage import StoreError
 
 ResearchMode = Literal["active", "history", "preview"]
@@ -26,5 +27,34 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
     @application.get("/api/v1/research/snapshots/{id}/report")
     def snapshot_report(id: str):
         return {**repo.snapshot_report(id), "disclaimer": disclaimer}
+
+    @application.get("/api/v1/research/search")
+    def search(
+        q: Annotated[str, Query(min_length=1, max_length=100)],
+        snapshot_id: str | None = None,
+        mode: ResearchMode = "active",
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ):
+        item = resolve(snapshot_id, mode)
+        query = q.strip()
+        if not query:
+            raise StoreError("Search query cannot be blank")
+        records = repo.list_snapshot_records(item.id, q=query)
+        records.sort(
+            key=lambda r: (
+                query.upper()
+                not in {r.identifier.upper(), str(r.properties.get("icao_id") or "").upper()},
+                r.identifier,
+                r.id,
+            )
+        )
+        resolve(item.id, mode)
+        return {
+            "snapshot_id": item.id,
+            "mode": mode,
+            "disclaimer": disclaimer,
+            "items": [r.model_dump(mode="json") for r in records[:limit]],
+            "truncated": len(records) > limit,
+        }
 
     return resolve
