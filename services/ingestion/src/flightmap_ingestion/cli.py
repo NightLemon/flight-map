@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 from flightmap_schema import SourceProduct, load_sources
-from flightmap_storage import Repository
+from flightmap_storage import Repository, StoreError
 
 from .acquisition import EvidenceRequired, build_local, load_manifest, update_product
 from .faa import FaaDiscovery
@@ -192,12 +192,20 @@ def import_local(
 
 @app.command("report")
 def report(
-    release_id: Annotated[str, typer.Option()],
+    release_id: Annotated[str | None, typer.Option()] = None,
+    snapshot_id: Annotated[str | None, typer.Option()] = None,
     data_dir: DataOption = Path("data"),
 ) -> None:
-    """Read validation results and the difference from the previous candidate."""
+    """Read a release report or a date precision research snapshot with its original inputs."""
+    if (release_id is None) == (snapshot_id is None):
+        raise typer.BadParameter("Provide exactly one of --release-id and --snapshot-id")
     try:
-        _echo(Repository(data_dir).report(release_id))
+        repository = Repository(data_dir)
+        _echo(
+            repository.snapshot_report(snapshot_id)
+            if snapshot_id is not None
+            else repository.report(release_id)
+        )
     except ValueError as exc:
         _echo({"status": "failed", "error": str(exc)})
         raise typer.Exit(1) from exc
@@ -212,7 +220,18 @@ def promote(
     """Recheck validity, evidence, quality, and permissions; transactionally switch Current."""
     repository = Repository(data_dir)
     try:
-        release = repository.get_release(release_id)
+        try:
+            release = repository.get_release(release_id)
+        except StoreError as exc:
+            if exc.status_code != 404:
+                raise
+            try:
+                repository.get_snapshot(release_id)
+            except StoreError:
+                raise exc from None
+            raise ValueError(
+                "Research snapshots have unknown exact validity and cannot be promoted to Current"
+            ) from exc
         repository.promote(release_id, _product(registry, release.product_id))
         _echo({"release_id": release_id, "status": "current"})
     except ValueError as exc:
@@ -232,4 +251,36 @@ def revoke(
         _echo({"release_id": release_id, "status": "revoked", "reason": reason})
     except ValueError as exc:
         _echo({"release_id": release_id, "status": "failed", "error": str(exc)})
+        raise typer.Exit(1) from exc
+
+
+@app.command("activate-snapshot")
+def activate_snapshot(
+    snapshot_id: Annotated[str, typer.Option()],
+    registry: RegistryOption = Path("sources/us/faa.yml"),
+    data_dir: DataOption = Path("data"),
+) -> None:
+    """Recheck a research candidate and switch only the independent research pointer."""
+    repository = Repository(data_dir)
+    try:
+        snapshot = repository.get_snapshot(snapshot_id)
+        repository.activate_snapshot(snapshot_id, _product(registry, snapshot.product_id))
+        _echo({"snapshot_id": snapshot_id, "mode": "research", "status": "active"})
+    except ValueError as exc:
+        _echo({"snapshot_id": snapshot_id, "status": "failed", "error": str(exc)})
+        raise typer.Exit(1) from exc
+
+
+@app.command("revoke-snapshot")
+def revoke_snapshot(
+    snapshot_id: Annotated[str, typer.Option()],
+    reason: Annotated[str, typer.Option()],
+    data_dir: DataOption = Path("data"),
+) -> None:
+    """Revoke a research snapshot and clear its research pointer, leaving Current unchanged."""
+    try:
+        Repository(data_dir).revoke_snapshot(snapshot_id, reason)
+        _echo({"snapshot_id": snapshot_id, "status": "revoked", "reason": reason})
+    except ValueError as exc:
+        _echo({"snapshot_id": snapshot_id, "status": "failed", "error": str(exc)})
         raise typer.Exit(1) from exc
