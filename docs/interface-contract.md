@@ -2,6 +2,8 @@
 
 API 是只读接口，所有航空数据响应携带非运行用途声明，并使用 Cache-Control: no-store。字段模型以 flightmap_schema 和 FastAPI /openapi.json 为准。
 
+2026-09-08 新增独立日期级机场研究快照与本机受限 PDF 读取，完整字段和行为见 [研究浏览契约](research-contract.md)。严格发布接口继续使用本文件的精确有效期规则。
+
 ## 状态与覆盖
 
 - GET /health：进程存活状态。
@@ -46,7 +48,7 @@ provenance 包含 asset_sha256、member、line、locator；资产/发布元数�
 - 410：默认发布过期/未生效，或发布被撤销。
 - 422：FastAPI 请求类型校验失败。
 
-PDF 不经过代理抓取，不提供绕过官方响应限制的服务端下载。浏览器不能内嵌时使用官方链接。
+PDF 使用受限本机读取接口 `/api/v1/charts/{chart_id}/pdf?release_id=...&mode=...`：仅所选 d-TPP 周期登记的 FAA PDF，无任意 URL、重定向或浏览器凭据转发。20 MiB / 20 秒上限，内存读取，返回前复检发布，附发布/航图 ID 与文件 SHA。前端使用本地 PDF.js 渲染，始终保留官方链接。上游失败返回 502/504，仅影响航图面板；本地 403/409/410 执行整组版本清理。
 
 ## CLI
 
