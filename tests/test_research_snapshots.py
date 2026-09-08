@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 from flightmap_schema import ResearchSnapshot
 from flightmap_storage import Repository, StoreError
-from research_helpers import airport, asset, product, report
+from research_helpers import NOW, airport, asset, product, report
 
 
 def snapshot(raw, **changes):
@@ -80,3 +80,33 @@ def test_multiple_inputs_and_blocking_candidate_report_are_preserved(tmp_path):
     assert len(saved["inputs"]) == 2
     assert saved["report"]["input_count"] == 2
     assert saved["report"]["error_count"] == 1
+
+
+def test_read_gates_recheck_policy_report_source_and_record_integrity(tmp_path):
+    repo, _, item = setup_snapshot(tmp_path)
+    assert (
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
+        == item
+    )
+    denied = product()
+    denied.local_access.processing = "unknown"
+    for policy, source in [(denied, "faa-aeronav"), (product(), "wrong-source")]:
+        with pytest.raises(StoreError) as error:
+            repo.resolve_snapshot(item.id, policy, source_id=source, mode="history", at=NOW)
+        assert error.value.status_code == 403
+    with repo._connect() as connection, connection:
+        connection.execute("UPDATE snapshot_records SET name='tampered'")
+    with pytest.raises(StoreError, match="records failed"):
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
+
+
+def test_bad_report_original_and_missing_input_are_blocked(tmp_path):
+    repo, raw, item = setup_snapshot(tmp_path)
+    (repo.assets_dir / raw.sha256).write_bytes(b"corrupt")
+    with pytest.raises(StoreError, match="integrity"):
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)
+    (repo.assets_dir / raw.sha256).write_bytes(b"SYNTHETIC TEST ONLY")
+    with repo._connect() as connection, connection:
+        connection.execute("UPDATE research_snapshots SET report=?", ("{}",))
+    with pytest.raises(StoreError, match="report"):
+        repo.resolve_snapshot(item.id, product(), source_id="faa-aeronav", mode="history", at=NOW)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 
 from flightmap_schema import RawAsset, ResearchRecord, ResearchSnapshot, ValidationReport
@@ -20,6 +21,123 @@ def _digest_records(records):
 
 
 class SnapshotRepositoryMixin:
+    def _check_snapshot(self, connection, row, product, source_id):
+        try:
+            item = ResearchSnapshot.model_validate_json(row["metadata"])
+            report = ValidationReport.model_validate_json(row["report"])
+        except ValueError as exc:
+            raise StoreError("Stored snapshot metadata/report failed validation", 403) from exc
+        if row["revoked_reason"] is not None:
+            raise StoreError("Research snapshot has been revoked", 410)
+        if (item.id, item.source_id, item.product_id) != (
+            row["id"],
+            row["source_id"],
+            row["product_id"],
+        ) or (source_id, product.id) != (item.source_id, item.product_id):
+            raise StoreError("Research snapshot source/product identity mismatch", 403)
+        if (source_id, product.id) != ("faa-aeronav", "nasr"):
+            raise StoreError("Unsupported snapshot source/product", 403)
+        if not item.local_access.allows_processing or not product.local_access.allows_processing:
+            raise StoreError("Research snapshot processing permission is not allowed", 403)
+        if report.blocking or not report.success_count:
+            raise StoreError("Research validation report blocks reading", 403)
+        if item.capabilities != ["airports"] or set(report.capabilities) != {"airports"}:
+            raise StoreError("Research capabilities disagree with report", 403)
+        inputs = connection.execute(
+            "SELECT i.sha256,a.metadata FROM snapshot_inputs i JOIN acquisitions a "
+            "ON i.acquisition_id=a.id WHERE i.snapshot_id=? ORDER BY i.sha256",
+            (item.id,),
+        ).fetchall()
+        if [r[0] for r in inputs] != item.input_sha256:
+            raise StoreError("Snapshot input set is inconsistent", 403)
+        for sha, metadata in inputs:
+            try:
+                raw = RawAsset.model_validate_json(metadata)
+                if (raw.sha256, raw.source_id, raw.product_id) != (sha, source_id, product.id):
+                    raise ValueError("Acquisition identity mismatch")
+                path = self.assets_dir / sha
+                with path.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != sha:
+                        raise ValueError("Input hash mismatch")
+                if path.stat().st_size != raw.size_bytes:
+                    raise ValueError("Input size mismatch")
+            except (ValueError, OSError) as exc:
+                raise StoreError("Snapshot original input integrity failed", 403) from exc
+
+        # Revalidate immutable records once per database/WAL revision. Raw assets above are
+        # hashed on every gate, including reads, so modifying an original never hits this cache.
+        def signature():
+            result = []
+            for path in [self.db_path, self.db_path.with_name(self.db_path.name + "-wal")]:
+                try:
+                    stat = path.stat()
+                    result.append((stat.st_mtime_ns, stat.st_size))
+                except FileNotFoundError:
+                    result.append(None)
+            return tuple(result)
+
+        marker = signature()
+        cache = getattr(self, "_checked_snapshot_records", {})
+        key = (item.id, row["records_sha256"], report.success_count)
+        if cache.get(key) != marker:
+            records = []
+            try:
+                for stored in connection.execute(
+                    "SELECT id,identifier,name,metadata FROM snapshot_records "
+                    "WHERE snapshot_id=? ORDER BY id",
+                    (item.id,),
+                ):
+                    r = ResearchRecord.model_validate_json(stored["metadata"])
+                    if (r.id, r.identifier, r.name) != tuple(stored)[:3]:
+                        raise ValueError("Stored record identity differs")
+                    if r.kind != "airport" or r.provenance.asset_sha256 not in item.input_sha256:
+                        raise ValueError("Record provenance/kind differs")
+                    geometry = r.geometry or {}
+                    coords = geometry.get("coordinates", [])
+                    if (
+                        geometry.get("type") != "Point"
+                        or len(coords) != 2
+                        or not all(isinstance(v, int | float) and math.isfinite(v) for v in coords)
+                        or not -180 <= coords[0] <= 180
+                        or not -90 <= coords[1] <= 90
+                    ):
+                        raise ValueError("Invalid airport coordinates")
+                    records.append(r)
+                if len(records) != report.success_count:
+                    raise ValueError("Stored record count differs")
+                if _digest_records(records) != row["records_sha256"]:
+                    raise ValueError("Stored record checksum differs")
+            except ValueError as exc:
+                raise StoreError(f"Snapshot records failed validation: {exc}", 403) from exc
+            if signature() == marker:
+                self._checked_snapshot_records = {key: marker}
+        return item, report
+
+    def resolve_snapshot(
+        self, snapshot_id, product, *, source_id, mode="active", at=None
+    ) -> ResearchSnapshot:
+        now = at or datetime.now(UTC)
+        if now.tzinfo is None or mode not in {"active", "history", "preview"}:
+            raise StoreError("Aware query time and valid research mode are required")
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            row = self._snapshot_row(connection, snapshot_id)
+            item, _ = self._check_snapshot(connection, row, product, source_id)
+            pointer = connection.execute(
+                "SELECT snapshot_id FROM active_snapshots WHERE source_id=? AND product_id=?",
+                (source_id, product.id),
+            ).fetchone()
+            future = item.official_effective_date > now.astimezone(UTC).date()
+            if mode == "active" and (pointer is None or pointer[0] != snapshot_id):
+                raise StoreError("Active research snapshot changed; refresh the complete view", 409)
+            if mode == "active" and future:
+                raise StoreError("Future snapshot requires explicit preview", 409)
+            if mode == "preview" and not future:
+                raise StoreError("Snapshot is not a future preview", 409)
+            if mode == "history" and (future or (pointer and pointer[0] == snapshot_id)):
+                raise StoreError("Select a non-active, non-future research snapshot", 409)
+            return item
+
     def get_acquired_asset(self, sha, *, source_id, product_id) -> RawAsset:
         with self._connect() as connection:
             row = connection.execute(
