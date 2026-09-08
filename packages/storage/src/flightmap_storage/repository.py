@@ -21,18 +21,15 @@ from flightmap_schema import (
 )
 from flightmap_schema.publication import check_publication
 
-
-class StoreError(ValueError):
-    def __init__(self, message: str, status_code: int = 400) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+from .errors import StoreError
+from .snapshots import SnapshotRepositoryMixin
 
 
 def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-class Repository:
+class Repository(SnapshotRepositoryMixin):
     def __init__(self, data_dir: str | Path) -> None:
         self.data_dir = Path(data_dir).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
