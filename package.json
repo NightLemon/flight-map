@@ -13,6 +13,6 @@
     "test:e2e": "npm run test:e2e --workspace=web"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   }
 }

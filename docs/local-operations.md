@@ -1,6 +1,6 @@
 # 本机操作与恢复
 
-在仓库根目录使用 PowerShell。首次安装运行 `uv sync --all-packages --dev --locked` 和 `npm ci`；更新 Python 依赖前先停止 API。以下命令直接调用已安装环境，不触发依赖自动同步。
+在仓库根目录使用 PowerShell，需要 Python 3.12、uv 和 Node.js 22.13.0+。首次安装运行 `uv sync --all-packages --dev --locked` 和 `npm ci`；更新 Python 依赖前先停止 API。以下命令直接调用已安装环境，不触发依赖自动同步。
 
 API 默认使用 `data`，构造仓库时自动执行编号迁移。可以设置 `$env:FLIGHTMAP_DATA_DIR = "C:\绝对路径\flightmap-data"`；CLI 和 API 必须指向同一目录。CLI 也支持 `--data-dir "C:\绝对路径\flightmap-data"`。来源配置默认是 `sources/us/faa.yml`。
 

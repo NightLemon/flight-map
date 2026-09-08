@@ -16,7 +16,7 @@ FAA 航空资料的本机研究平台：官方原件、可追溯记录、独立�
 
 ## 启动
 
-需要 Python 3.12、uv、Node.js 22+。不需要 Docker、PostGIS 或 MinIO。
+需要 Python 3.12、uv、Node.js 22.13.0+。不需要 Docker、PostGIS 或 MinIO。
 
 ```powershell
 uv sync --all-packages --dev --locked
@@ -84,7 +84,7 @@ npm run test:e2e
 
 - [执行台账](docs/implementation-plan.md)：批准计划的全部任务编号、完成情况和阻断项。
 - [任务卡模板](docs/task-card-template.md)：为后续小模型任务固定输入、输出和验收。
-- [本机验收记录](docs/verification-2026-09-07.md)：真实产品结果、测试范围和未完成能力。
+- [本机验收记录](docs/verification-2026-09-08.md)：真实产品结果、测试范围和未完成能力。
 - [日期级研究契约](docs/research-contract.md)、[本机操作与恢复](docs/local-operations.md)：本轮快照模型、命令、日期状态及 schema 2 的回退方式。
 - [架构与生命周期](docs/architecture.md)、[接口契约](docs/interface-contract.md)。
 - [官方来源证据](docs/source-evidence.md)、[CIFP 支持矩阵](docs/cifp-support.md)、[数据政策](docs/data-policy.md)。
