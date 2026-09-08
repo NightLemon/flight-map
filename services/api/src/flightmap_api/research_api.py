@@ -79,7 +79,11 @@ def install_research_routes(application, repo, policies, clock, disclaimer):
         except ValueError as exc:
             raise StoreError("bbox must be west,south,east,north in geographic degrees") from exc
         selected = []
-        for record in repo.list_snapshot_records(item.id):
+        for record in repo.list_snapshot_records(
+            item.id,
+            bounds=(west, south, east, north),
+            limit=limit + 1,
+        ):
             lon, lat = record.geometry["coordinates"]
             longitude_matches = west <= lon <= east if west <= east else lon >= west or lon <= east
             if not longitude_matches or not south <= lat <= north:

@@ -349,9 +349,19 @@ class SnapshotRepositoryMixin:
             )
         return snapshot.id
 
-    def list_snapshot_records(self, snapshot_id, *, q=None, limit=100000, offset=0):
+    def list_snapshot_records(self, snapshot_id, *, q=None, limit=100000, offset=0, bounds=None):
         params = [snapshot_id]
-        sql = "SELECT metadata FROM snapshot_records WHERE snapshot_id=?"
+        column = (
+            "metadata" if bounds is None else "json_remove(metadata, '$.properties.raw_fields')"
+        )
+        sql = f"SELECT {column} FROM snapshot_records WHERE snapshot_id=?"
+        if bounds is not None:
+            west, south, east, north = bounds
+            lon = "json_extract(metadata, '$.geometry.coordinates[0]')"
+            lat = "json_extract(metadata, '$.geometry.coordinates[1]')"
+            longitude = f"{lon} BETWEEN ? AND ?" if west <= east else f"({lon}>=? OR {lon}<=?)"
+            sql += f" AND ({longitude}) AND {lat} BETWEEN ? AND ?"
+            params.extend([west, east, south, north])
         if q is not None:
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             sql += (
