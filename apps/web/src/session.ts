@@ -1,9 +1,29 @@
-import type { Mode, Release, Status } from './api'
+import type { Mode, Release, ResearchMode, SnapshotStatus, Status } from './api'
 
 export const PRODUCTS = ['nasr', 'cifp', 'dtpp'] as const
 export const PRODUCT_NAMES: Record<string, string> = { nasr: 'NASR · 机场', cifp: 'CIFP · 矢量程序', dtpp: 'd-TPP · 航图目录' }
 export const MODE_NAMES: Record<Mode, string> = { current: '当前资料', preview: '预览资料', history: '历史资料' }
 export type Selection = Partial<Record<string, string>>
+export const researchMode = (mode: Mode): ResearchMode => mode === 'current' ? 'active' : mode
+
+export function snapshotChoices(status: Status | null, mode: ResearchMode) {
+  return status?.research?.snapshots.filter((item) => {
+    if (['revoked', 'blocked'].includes(item.state) || item.date_status === 'unavailable') return false
+    if (mode === 'preview') return item.date_status === 'future'
+    if (mode === 'history') return item.date_status !== 'future' && item.state !== 'active'
+    return item.state === 'active'
+  }) ?? []
+}
+
+export function selectedSnapshot(status: Status | null, mode: ResearchMode, id: string): SnapshotStatus | undefined {
+  if (mode === 'active') return status?.research?.active_snapshots.nasr
+  return snapshotChoices(status, mode).find((item) => item.id === id && item.product_id === 'nasr')
+}
+
+export function snapshotChartDate(snapshot: SnapshotStatus | undefined, charts: Release | undefined) {
+  return Boolean(snapshot && charts && /^\d{4}-\d{2}-\d{2}$/.test(snapshot.official_effective_date)
+    && Number.isFinite(Date.parse(charts.valid_from)) && snapshot.official_effective_date === charts.valid_from.slice(0, 10))
+}
 
 export function selectedReleases(status: Status | null, mode: Mode, selection: Selection): Record<string, Release> {
   if (!status) return {}

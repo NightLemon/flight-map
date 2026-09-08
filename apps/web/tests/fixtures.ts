@@ -1,5 +1,13 @@
 // Synthetic records for tests only. None are imported by the application.
-import type { GeometryResponse, Release, ResearchRecord, Status } from '../src/api'
+import type { GeometryResponse, Release, ResearchRecord, SnapshotStatus, Status } from '../src/api'
+
+export function researchSnapshot(overrides: Partial<SnapshotStatus> = {}): SnapshotStatus {
+  return { id: 'nasr-research-synthetic-2609', source_id: 'synthetic-test', product_id: 'nasr',
+    official_effective_date: '2026-09-03', date_precision: 'day', exact_validity_status: 'unknown',
+    date_evidence: ['synthetic date evidence'], input_sha256: ['a'.repeat(64)], parser_version: 'synthetic-only', schema_version: 'research-1',
+    capabilities: ['airports'], update_interval_days: 28, update_interval_evidence: ['synthetic interval'],
+    state: 'active', date_status: 'researchable', expected_update_date: '2026-10-01', counts: { airports: 1 }, ...overrides }
+}
 
 export function release(product: string, overrides: Partial<Release> = {}): Release {
   return { id: `synthetic-${product}-2609`, source_id: 'synthetic-test', product_id: product, airac: '2609',
