@@ -11,8 +11,8 @@ export function PdfViewer({ chartId, title, release, mode, onInvalid }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const taskRef = useRef<RenderTask | null>(null)
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null)
-  const pageNumber = 1
-  const zoom = 1
+  const [pageNumber, setPageNumber] = useState(1)
+  const [zoom, setZoom] = useState(1)
   const [width, setWidth] = useState(0)
   const [state, setState] = useState<'loading' | 'rendering' | 'ready' | 'failed'>('loading')
   const [error, setError] = useState('')
@@ -75,8 +75,19 @@ export function PdfViewer({ chartId, title, release, mode, onInvalid }: Props) {
     return () => { active = false; clearCanvas() }
   }, [document, pageNumber, width, zoom])
 
+  const changePage = (next: number) => { clearCanvas(); setState('rendering'); setPageNumber(next) }
+  const changeZoom = (next: number) => { clearCanvas(); setState('rendering'); setZoom(next) }
 
   return <div className="pdf-viewer" aria-label={`PDF 查看器 ${title}`}>
+    <div className="pdf-toolbar">
+      <button aria-label="上一页" disabled={!document || pageNumber === 1} onClick={() => changePage(pageNumber - 1)}>←</button>
+      <span aria-label="PDF 页码">{pageNumber} / {document?.numPages ?? '—'}</span>
+      <button aria-label="下一页" disabled={!document || pageNumber === document.numPages} onClick={() => changePage(pageNumber + 1)}>→</button>
+      <button aria-label="缩小航图" disabled={!document || zoom <= 0.5} onClick={() => changeZoom(Math.max(0.5, zoom - 0.25))}>−</button>
+      <span aria-label="PDF 缩放">{Math.round(zoom * 100)}%</span>
+      <button aria-label="放大航图" disabled={!document || zoom >= 4} onClick={() => changeZoom(Math.min(4, zoom + 0.25))}>+</button>
+      <button disabled={!document || zoom === 1} onClick={() => changeZoom(1)}>适合宽度</button>
+    </div>
     <p className="version-caption" role="status">{state === 'ready' ? `PDF 已显示 · 第 ${pageNumber} 页 / 共 ${document?.numPages} 页` : state === 'failed' ? 'PDF 显示失败，可使用 FAA 官方链接。' : state === 'loading' ? '正在获取官方 PDF…' : '正在绘制 PDF 页面…'}</p>
     {error && <p role="status" className="inline-notice">{error}</p>}
     <div ref={containerRef} className="pdf-canvas-container">
