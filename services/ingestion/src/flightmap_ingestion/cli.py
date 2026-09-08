@@ -12,6 +12,7 @@ from flightmap_storage import Repository
 
 from .acquisition import EvidenceRequired, build_local, load_manifest, update_product
 from .faa import FaaDiscovery
+from .research_acquisition import build_research_from_asset
 
 app = typer.Typer(help="Flight Map official FAA local research tools")
 RegistryOption = Annotated[Path, typer.Option(exists=True, readable=True)]
@@ -83,7 +84,8 @@ def discover_faa(
         raise typer.Exit(code=1)
 
 
-def _operation(repository: Repository, product_id: str, operation):
+def _operation(repository: Repository, product_id: str, operation, *, research: bool = False):
+    record_attempt = repository.record_research_attempt if research else repository.record_attempt
     try:
         result = operation()
         _echo(result)
@@ -92,7 +94,7 @@ def _operation(repository: Repository, product_id: str, operation):
     except typer.Exit:
         raise
     except EvidenceRequired as exc:
-        repository.record_attempt(product_id, "needs-user-action", str(exc))
+        record_attempt(product_id, "needs-user-action", str(exc))
         _echo(
             {
                 "product": product_id,
@@ -103,7 +105,7 @@ def _operation(repository: Repository, product_id: str, operation):
         )
         raise typer.Exit(2) from exc
     except Exception as exc:
-        repository.record_attempt(product_id, "failed", str(exc))
+        record_attempt(product_id, "failed", str(exc))
         _echo(
             {
                 "product": product_id,
@@ -122,10 +124,32 @@ def update(
     data_dir: DataOption = Path("data"),
     manifest: Annotated[Path | None, typer.Option(exists=True, readable=True)] = None,
     preview: Annotated[bool, typer.Option()] = False,
+    research: Annotated[
+        bool, typer.Option(help="Build a separate date precision NASR snapshot")
+    ] = False,
+    asset_sha256: Annotated[
+        str | None, typer.Option(help="Reuse an acquired NASR ZIP by its complete SHA-256")
+    ] = None,
 ) -> None:
     """Discover, acquire, verify, and build an immutable candidate; never promote."""
+    if asset_sha256 is not None and not research:
+        raise typer.BadParameter("--asset-sha256 requires --research")
+    if research and manifest is not None:
+        raise typer.BadParameter("--research and --manifest are mutually exclusive")
+    if research and product != "nasr":
+        raise typer.BadParameter("--research currently supports only --product nasr")
+    if research and asset_sha256 is None:
+        raise typer.BadParameter("Research builds currently require --asset-sha256")
     selected = _product(registry, product)
     repository = Repository(data_dir)
+    if research:
+        _operation(
+            repository,
+            product,
+            lambda: build_research_from_asset(repository, selected, asset_sha256, preview=preview),
+            research=True,
+        )
+        return
     _operation(
         repository,
         product,
